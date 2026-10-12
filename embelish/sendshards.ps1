@@ -1,148 +1,6 @@
 #requires -Version 5.1
-<#
-.SYNOPSIS
-    Plans and resumes a paced transfer of archive shards to an approved Git remote.
-.DESCRIPTION
-    Revision 1.0.0. One self-contained Windows PowerShell 5.1 script. Requires
-    installed Git for Windows 2.30 or newer, FullLanguage, and pre-provisioned credentials.
-    Run as the current user. No installation, elevation, policy changes are performed. Git hooks, signing,
-    credential helpers, TLS checks, and repository filters remain active.
 
-    Plan reads local repository information and writes a readable UTF-8 JSON
-    document. It performs no network operation, staging, commit, or push. The
-    document records SHA-256 hashes, exact Git blob IDs, the branch, the configured
-    push destination's fingerprint, and a fixed wait for each pending file.
-    Pacing is transparent and deterministic.
-
-    Push revalidates that document and processes one pending file at a time:
-    verify -> add -> verify index -> commit -> verify commit -> push -> verify
-    remote branch -> checkpoint. All shard sets must have contiguous numbering.
-    Each matching checksum manifest is included after that set's shards. Legacy
-    sets are accepted with a warning. This does not decrypt or test the archive.
-    Already-identical files in the base commit need no new commit.
-
-    Push starts a 60-minute budget, persisted at <PlanPath>.state.json. The same
-    Push command resumes automatically. Verified Git commits and the actual
-    remote branch, rather than an optimistic counter, establish progress. One
-    local commit may be awaiting push. Failed/uncertain pushes are not blindly
-    retried. Last attempted/verified push times preserve pacing on resume.
-    A timed-out plan remains inspectable but cannot restart its original budget.
-    A completed checkpoint may be reverified later without sending more data.
-    A new Plan is an explicit new transfer, with a new budget.
-    Its base still must match the remote: resolve any pending older local commit
-    through the approved Git recovery procedure before starting a replacement plan.
-
-    Completion within 60 minutes cannot be guaranteed: counts, bandwidth,
-    authentication, hooks, server limits, and outages can make it impossible.
-    Plan rejects waits consuming more than 50 minutes, reserving at least ten
-    minutes for work. Push bounds Git calls and stops initiating work at its
-    deadline. Blocking filesystem I/O and process cleanup can exceed the budget.
-    Keep the Windows clock accurate. Fixed waiting starts after the previous
-    attempt/verified completion; operation time adds to the planned waits.
-
-    The current branch must already exist remotely. At the first Push its remote
-    tip must equal the plan's base commit, preventing upload of unrelated local
-    commits. Divergence, branch changes, changed source bytes, and foreign staged
-    changes cause a stop. Do not edit or use Git in this worktree during transfer.
-    The exclusive sendshards.lock in Git's common directory serializes this tool
-    across linked worktrees; it cannot lock out other Git applications.
-
-    Plan/state/logs must be outside the worktree and Git metadata. Plans contain
-    private paths and file hashes and must be reviewed before sharing. Logs omit
-    paths, remote URLs, payloads, credentials, raw Git output, and exception text.
-    No success-stream result is produced. Files/shards are never removed. Failed
-    commits can leave the next file staged; successful commits remain in Git.
-    A verified, matching staged next file is accepted on resume. Rewriting history,
-    resetting, stashing, force-pushing, and silently skipping hooks are not used.
-    Hard termination can also leave a native Git index.lock; investigate native
-    Git locks before resuming rather than deleting them while Git may still run.
-    Use actual directory paths for plans/logs: directory symlink/junction ancestry
-    is refused for these owned outputs so an external-looking path cannot redirect
-    writes into the repository. Ordinary OneDrive cloud placeholders are not banned.
-    Filters changing shard bytes (including LFS pointers) fail verification;
-    use a repository configuration approved for preserving these file bytes.
-
-    Runtime limits: 10,000 shard/manifest files, 256 MiB per shard, 8 MiB per JSON
-    document, 2 MiB captured output per native stream, 100 log files retained.
-    Child executables: installed git.exe and its configured approved helpers/hooks;
-    Windows taskkill.exe only for the process tree owned by this invocation on
-    timeout/cancellation. No network contact occurs until an authorized Push.
-.PARAMETER Plan
-    Generate a new plan. Existing plan or checkpoint files are never overwritten.
-.PARAMETER Push
-    Execute or resume an existing plan. Repeating this command is the resume action.
-.PARAMETER SourcePath
-    With Plan: a local folder inside the worktree, containing *.7z.NNN.txt shards.
-    Top-level files only; multiple archive sets are supported. Other files ignored.
-.PARAMETER PlanPath
-    Required in either mode. JSON document outside the repository. Relative paths
-    use the invocation's PowerShell filesystem location, not the script directory.
-.PARAMETER Remote
-    With Plan: configured remote name, default origin. Exactly one push URL required.
-    The configured push URL is used for both push and remote verification.
-.PARAMETER WaitSeconds
-    With Plan: fixed minimum wait between pushes, default 30, range 5 through 600.
-    This is a rate limit, not a means of avoiding security inspection.
-.PARAMETER GitTimeoutSeconds
-    With Plan: maximum duration of each Git command, default 60, range 10 through 300,
-    further limited by the remaining execution budget.
-.PARAMETER GitPath
-    Optional approved installed git.exe path. Otherwise resolved from PATH.
-.EXAMPLE
-    .\sendshards.ps1 -Plan -SourcePath 'C:\repo\shards' -PlanPath 'C:\TransferPlans\batch.json'
-.EXAMPLE
-    .\sendshards.ps1 -Push -PlanPath 'C:\TransferPlans\batch.json'
-    Repeat the same command after an interruption; no separate Resume flag is needed.
-.EXAMPLE
-    .\sendshards.ps1 -Push -PlanPath 'C:\TransferPlans\batch.json' -WhatIf
-.EXAMPLE
-    .\sendshards.ps1 -Push -PlanPath 'C:\TransferPlans\batch.json' -Debug
-.INPUTS
-    None. Source files and the persisted plan are input data.
-.OUTPUTS
-    None on the success stream. Plan produces a JSON document. Push maintains a
-    checkpoint and sanitized JSONL operational logs. Verbose/Debug use their streams.
-.NOTES
-    WhatIf/declined confirmation: read-only local checks, no network, logs, locks,
-    directories, staging, or checkpoint writes. Debug never introduces prompting.
-    Exit: 0 complete/requested preview; 1 unexpected; 2 invalid input/plan;
-    3 operational/dependency/repository conflict; 4 controlled timeout.
-    Binding, execution-policy refusal, Ctrl+C, and hard termination can occur outside
-    this mapping. Missing completion is an unknown outcome; resume reconciles Git.
-    Audit initialization must succeed before mutations. Later logging/cleanup failure
-    warns without replacing the primary failure. Checkpoint failure stops further work.
-    Normal retention removes only this tool's old log files, never plans/checkpoints.
-
-    Task Scheduler example (paths illustrative):
-      Program: C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe
-      Arguments: -NoLogo -NoProfile -NonInteractive -File "C:\ApprovedTools\sendshards.ps1" -Push -PlanPath "C:\TransferPlans\batch.json"
-      Start in: C:\ApprovedTools
-    Use the intended user with approved network credentials; S4U lacks network access.
-    Configure no overlapping instances, no automatic rapid retries, an execution limit
-    above 60 minutes for cleanup, and suitable network/sleep/battery conditions. This
-    script does not register tasks. External helpers/hooks can require prior setup;
-    noninteractive PowerShell does not prevent every external application dialog.
-
-    Verification for revision 1.0.0:
-      PASS: development-only native Git protocol checks on Linux, Git 2.51.1,
-        Python 3.12: 11 asserted scenarios covering exact file/commit/remote bytes,
-        manifest order, distinct fetch/push destinations, interrupted progress,
-        Unicode/literal paths, hook rejection, filters, and wait-budget boundaries.
-        These exercised native Git commands and a quoting model, NOT this script.
-      PASS: lexical source checks (balanced strings/delimiters, unique functions,
-        command-resolution inventory, prohibited-operation review), UTF-8 BOM.
-      PASS: manual review of function size/control flow/nesting, source/index/commit
-        guards, output suppression, and sanitized diagnostics. No AST metric claim.
-      NOT RUN: PowerShell parser/PSScriptAnalyzer, target Windows PowerShell 5.1,
-        Windows process/ACL behavior, Task Scheduler, endpoint/proxy/DLP acceptance.
-        Those runtimes and the managed target environment are unavailable here.
-.LINK
-    https://git-scm.com/docs/git-push
-.LINK
-    https://git-scm.com/docs/git-ls-remote
-.LINK
-    https://learn.microsoft.com/en-us/windows-server/administration/windows-commands/taskkill
-#>
+# .EXTERNALHELP ../docs/sendshards/sendshards-help.xml
 [CmdletBinding(DefaultParameterSetName = 'Plan', PositionalBinding = $false,
     SupportsShouldProcess = $true, ConfirmImpact = 'Medium')]
 param(
@@ -278,7 +136,7 @@ function ConvertTo-NativeArgument {
     if ($Value.IndexOf([char]0) -ge 0) {
         Stop-Transfer -Id 'NativeArgument' -Message 'An argument contains an invalid null character.' -Code 2
     }
-    # Windows CRT quoting: double slashes before a quote and before the closing quote.
+
     $escaped = [regex]::Replace($Value, '(\\*)"', '$1$1\"')
     $escaped = [regex]::Replace($escaped, '(\\+)$', '$1$1')
     return '"' + $escaped + '"'
@@ -327,7 +185,7 @@ function Stop-OwnedProcess {
     if ($Process.HasExited) {
         return
     }
-    # Never kill by image name. The PID belongs to the Process object started here.
+
     $killer = [System.Diagnostics.Process]::new()
     try {
         $killer.StartInfo.FileName = $TaskKillPath
@@ -1470,7 +1328,7 @@ function Send-ItemCommit {
     Write-TransferEvent -Context $Context -Event 'PushAttempt' -Fields @{
         item = $State.VerifiedCount + 1
     }
-    # Exact source OID, one branch refspec, no force, no tag propagation, hooks active.
+
     $null = Invoke-TransferGit -Context $Context -Arguments @('push', '--porcelain', '--no-follow-tags', '--', $Document.Remote, ($Commit + ':' + $Document.BranchRef))
     $observed = Get-RemoteCommit -Context $Context -Url $Url -Branch $Document.BranchRef
     if ($observed -cne $Commit) {
@@ -1507,7 +1365,7 @@ function Invoke-TransferPush {
     $pending = @($Document.Files | Where-Object {
             $_.Pending
         })
-    # Save the original start before contacting the remote or making Git mutations.
+
     if (-not [System.IO.File]::Exists($statePath)) {
         Write-AtomicJson -Path $statePath -Document $state -NewOnly
     }
@@ -1614,7 +1472,7 @@ function Invoke-PlanPublication {
     if (Test-Path -LiteralPath ($Path + '.state.json')) {
         Stop-Transfer -Id 'CheckpointExists' -Message 'A checkpoint already exists for this filename.' -Code 2
     }
-    # Revalidate the frozen view after acquiring the tool lock.
+
     $null = Assert-PlanRepository -Context $Context -Document $Document
     Assert-SourceSnapshot -Context $Context -Document $Document
     if ((Get-GitText -Context $Context -Arguments @('rev-parse', '--verify', 'HEAD')) -cne $Document.BaseCommit) {
@@ -1630,7 +1488,6 @@ function Invoke-PlanPublication {
     Write-Verbose ('Plan created: ' + $Path)
 }
 
-# Thin executable boundary: no dot-sourcing interface, success objects, or custom prompts.
 $context = $null
 $lock = $null
 $exitCode = 0
@@ -1647,7 +1504,7 @@ try {
         Assert-TransferPlan -Document $document
         $action = 'Create the fixed-rate Git shard transfer plan'
     } else {
-        # JSON reader assembly is loaded here before reading the input document.
+
         Add-Type -AssemblyName System.Runtime.Serialization -ErrorAction Stop
         $inputPlan = Get-VerifiedPlanInput -Path $planFile
         $document = $inputPlan.Document

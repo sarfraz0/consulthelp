@@ -1,0 +1,782 @@
+<?xml version='1.0' encoding='utf-8'?>
+<helpItems xmlns:command="http://schemas.microsoft.com/maml/dev/command/2004/10" xmlns:dev="http://schemas.microsoft.com/maml/dev/2004/10" xmlns:maml="http://schemas.microsoft.com/maml/2004/10" schema="maml">
+  <command:command>
+    <command:details>
+      <command:name>embelish.ps1</command:name>
+      <maml:description>
+        <maml:para>Protects (embelishes) or restores (deembelishes) a folder as encrypted,
+base64-encoded text shards backed by a split 7-Zip archive.</maml:para>
+      </maml:description>
+    </command:details>
+    <maml:description>
+      <maml:para>Embelish packs a source folder into an AES-256 encrypted, header-encrypted,
+multi-volume 7-Zip archive, then stores each volume as a single-line base64
+text shard ('&lt;name&gt;.7z.001.txt', '.002.txt', ...). Deembelish reverses the
+operation: it base64-decodes the shards back into 7-Zip volumes and extracts
+them into a folder. Compression, archive encryption, filename hiding
+and volume splitting are delegated to the 7-Zip command-line tool; a
+short-lived staging directory under the system temp folder holds the
+intermediate volumes and is removed when the operation finishes.</maml:para>
+      <maml:para>The encryption password is never accepted on the command line, stored in a
+file, placed in an environment variable or written to any log. Instead, the
+7-Zip tool prompts for it directly on the console. Embelish asks for the
+password twice (enter and verify); deembelish asks once. Because of this the
+script is interactive by design and is not intended for silent, unattended
+scheduling unless a separate provisioned credential mechanism is added.</maml:para>
+      <maml:para>Diagnostic events are written as JSON Lines to a per-run file under
+%LOCALAPPDATA%\Embelish\logs (or -LogDirectory). The diagnostic file records
+operational facts only (operation, sizes, counts, 7-Zip exit code, timing);
+it never contains the password.</maml:para>
+    </maml:description>
+    <command:syntax>
+      <command:syntaxItem>
+        <maml:name>embelish.ps1</maml:name>
+        <command:parameter required="true" position="named">
+          <maml:name>Mode</maml:name>
+          <command:parameterValue required="true">String</command:parameterValue>
+        </command:parameter>
+        <command:parameter required="true" position="named">
+          <maml:name>SourcePath</maml:name>
+          <command:parameterValue required="true">String</command:parameterValue>
+        </command:parameter>
+        <command:parameter required="true" position="named">
+          <maml:name>DestinationPath</maml:name>
+          <command:parameterValue required="true">String</command:parameterValue>
+        </command:parameter>
+        <command:parameter required="false" position="named">
+          <maml:name>VolumeSizeMegabytes</maml:name>
+          <command:parameterValue required="true">Int32</command:parameterValue>
+        </command:parameter>
+        <command:parameter required="false" position="named">
+          <maml:name>CompressionLevel</maml:name>
+          <command:parameterValue required="true">Int32</command:parameterValue>
+        </command:parameter>
+        <command:parameter required="false" position="named">
+          <maml:name>SevenZipPath</maml:name>
+          <command:parameterValue required="true">String</command:parameterValue>
+        </command:parameter>
+        <command:parameter required="false" position="named">
+          <maml:name>ArchiveBaseName</maml:name>
+          <command:parameterValue required="true">String</command:parameterValue>
+        </command:parameter>
+        <command:parameter required="false" position="named">
+          <maml:name>LogDirectory</maml:name>
+          <command:parameterValue required="true">String</command:parameterValue>
+        </command:parameter>
+        <command:parameter required="false" position="named">
+          <maml:name>Force</maml:name>
+        </command:parameter>
+      </command:syntaxItem>
+    </command:syntax>
+    <command:parameters>
+      <command:parameter required="true" position="named" pipelineInput="false" globbing="false">
+        <maml:name>Mode</maml:name>
+        <maml:description>
+          <maml:para>Operation to perform: 'Embelish' to protect a folder, 'Deembelish' to
+restore one.</maml:para>
+        </maml:description>
+        <command:parameterValue required="true">String</command:parameterValue>
+        <dev:type>
+          <maml:name>String</maml:name>
+        </dev:type>
+      </command:parameter>
+      <command:parameter required="true" position="named" pipelineInput="false" globbing="false">
+        <maml:name>SourcePath</maml:name>
+        <maml:description>
+          <maml:para>Embelish: the folder to protect.
+Deembelish: the folder that holds the base64 shards, or any one shard file
+(a '*.7z.NNN.txt') from the set.</maml:para>
+        </maml:description>
+        <command:parameterValue required="true">String</command:parameterValue>
+        <dev:type>
+          <maml:name>String</maml:name>
+        </dev:type>
+      </command:parameter>
+      <command:parameter required="true" position="named" pipelineInput="false" globbing="false">
+        <maml:name>DestinationPath</maml:name>
+        <maml:description>
+          <maml:para>Embelish: the output folder that will receive the base64 text shards.
+Deembelish: the output folder that will receive the restored files.</maml:para>
+        </maml:description>
+        <command:parameterValue required="true">String</command:parameterValue>
+        <dev:type>
+          <maml:name>String</maml:name>
+        </dev:type>
+      </command:parameter>
+      <command:parameter required="false" position="named" pipelineInput="false" globbing="false">
+        <maml:name>VolumeSizeMegabytes</maml:name>
+        <maml:description>
+          <maml:para>Size of each shard in megabytes for Embelish. Default 10. Ignored by
+Deembelish (7-Zip reassembles whatever volume sizes it finds).</maml:para>
+        </maml:description>
+        <command:parameterValue required="true">Int32</command:parameterValue>
+        <dev:type>
+          <maml:name>Int32</maml:name>
+        </dev:type>
+        <dev:defaultValue>10</dev:defaultValue>
+      </command:parameter>
+      <command:parameter required="false" position="named" pipelineInput="false" globbing="false">
+        <maml:name>CompressionLevel</maml:name>
+        <maml:description>
+          <maml:para>7-Zip compression level 0-9 for Embelish (0 = store, 9 = ultra/maximum).
+Default 9 (highest). Ignored by Deembelish.</maml:para>
+        </maml:description>
+        <command:parameterValue required="true">Int32</command:parameterValue>
+        <dev:type>
+          <maml:name>Int32</maml:name>
+        </dev:type>
+        <dev:defaultValue>9</dev:defaultValue>
+      </command:parameter>
+      <command:parameter required="false" position="named" pipelineInput="false" globbing="false">
+        <maml:name>SevenZipPath</maml:name>
+        <maml:description>
+          <maml:para>Full path to the 7-Zip executable. When omitted the script searches PATH for
+7z, 7za, 7zz and 7zr, then the standard Windows install locations.</maml:para>
+        </maml:description>
+        <command:parameterValue required="true">String</command:parameterValue>
+        <dev:type>
+          <maml:name>String</maml:name>
+        </dev:type>
+      </command:parameter>
+      <command:parameter required="false" position="named" pipelineInput="false" globbing="false">
+        <maml:name>ArchiveBaseName</maml:name>
+        <maml:description>
+          <maml:para>Base file name used for the Embelish shards. The produced shards are
+'&lt;ArchiveBaseName&gt;.7z.001.txt', '.002.txt', and so on. Default 'embelish'.
+Allowed characters: letters, digits, dot, dash and underscore.</maml:para>
+        </maml:description>
+        <command:parameterValue required="true">String</command:parameterValue>
+        <dev:type>
+          <maml:name>String</maml:name>
+        </dev:type>
+        <dev:defaultValue>embelish</dev:defaultValue>
+      </command:parameter>
+      <command:parameter required="false" position="named" pipelineInput="false" globbing="false">
+        <maml:name>LogDirectory</maml:name>
+        <maml:description>
+          <maml:para>Directory for the JSON Lines diagnostic file. Defaults to
+%LOCALAPPDATA%\Embelish\logs.</maml:para>
+        </maml:description>
+        <command:parameterValue required="true">String</command:parameterValue>
+        <dev:type>
+          <maml:name>String</maml:name>
+        </dev:type>
+      </command:parameter>
+      <command:parameter required="false" position="named" pipelineInput="false" globbing="false">
+        <maml:name>Force</maml:name>
+        <maml:description>
+          <maml:para>Overwrite existing output. For Embelish this removes pre-existing shards
+that share the archive base name. For Deembelish this allows extracting into
+a non-empty destination folder.</maml:para>
+        </maml:description>
+        <dev:type>
+          <maml:name>SwitchParameter</maml:name>
+        </dev:type>
+      </command:parameter>
+    </command:parameters>
+    <command:inputTypes>
+      <command:inputType>
+        <dev:type>
+          <maml:name>None</maml:name>
+        </dev:type>
+        <maml:description>
+          <maml:para>None. This script does not accept pipeline input.</maml:para>
+        </maml:description>
+      </command:inputType>
+    </command:inputTypes>
+    <command:returnValues>
+      <command:returnValue>
+        <dev:type>
+          <maml:name>System.Management.Automation.PSCustomObject</maml:name>
+        </dev:type>
+        <maml:description>
+          <maml:para>[pscustomobject] A single summary record describing the completed (or
+previewed) operation.</maml:para>
+        </maml:description>
+      </command:returnValue>
+    </command:returnValues>
+    <maml:alertSet>
+      <maml:alert>
+        <maml:para>DOCUMENTATION PACKAGING, 12 OCTOBER 2026
+Standalone execution requires no XML, Markdown or agent instruction files. Declared platform/application dependencies and runtime input/configuration still apply. The native .EXTERNALHELP directive is used only for detailed help. Without XML, native help falls back to generated parameter syntax. To retain detailed help, optionally deploy matching script/docs folders so ../docs/embelish/embelish-help.xml is available. Verification text below is historical; current extraction and standalone checks are recorded in docs/embelish/verification.md.</maml:para>
+        <maml:para>Exit codes:
+  0  Operation completed successfully.
+  1  Unexpected or unclassified failure.
+  2  Invalid input or configuration (bad arguments, missing source,
+     existing output without -Force, 7-Zip command-line error).
+  3  Operational, dependency or permission failure (7-Zip not found, 7-Zip
+     fatal error, wrong password, I/O or access error).
+  4  Reserved for a controlled timeout (not used by this script).</maml:para>
+        <maml:para>Scheduled / Task Scheduler note:
+  Because 7-Zip prompts for the password on the console, this tool needs an
+  interactive session. A classic Task Scheduler "Program/script" action is:
+    Program/script: C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe
+    Arguments:      -NoLogo -NoProfile -File "C:\ApprovedTools\embelish.ps1" -Mode Embelish -SourcePath "D:\data" -DestinationPath "E:\vault"
+    Start in:       C:\ApprovedTools
+  Do not use silent scheduling for this interactive workflow. Append
+  -Debug for extra diagnostics. Paths above are illustrative.</maml:para>
+        <maml:para>Requirements:
+  Windows PowerShell 5.1 or PowerShell 7+, and a 7-Zip executable on the
+  target machine (set -SevenZipPath if it is not on PATH).</maml:para>
+        <maml:para>Verification (revision 1.1.0):
+  Environment used: PowerShell 7.4.6 (Core) on macOS arm64; 7-Zip (7zz)
+    26.03. Windows PowerShell 5.1 and Windows 7z.exe were NOT available in
+    the development sandbox.
+  PASS         - Script parses (PowerShell AST parser, 0 errors).
+  PASS         - PSScriptAnalyzer: 0 errors, 0 warnings (settings: default).
+  PASS         - Embelish/Deembelish round-trip through this script over a
+                 pseudo-terminal (password entered at the 7-Zip prompt);
+                 restored tree is byte-identical to the source, including
+                 nested directories and Unicode names.
+  PASS         - 25 MB source produced three 10 MB base64 '.txt' shards
+                 (single-line ASCII); shards base64-decoded back to volumes
+                 and reassembled. Deembelish also works when -SourcePath
+                 points at a single shard file. No staging left behind.
+  PASS         - Maximum compression (-mx=9, the default) applied: 20 MB of
+                 repeated text collapsed to a single 8 KB shard. Each staged
+                 binary volume is deleted as its shard is written, so the
+                 destination holds only '.txt' shards and no temp files
+                 remain.
+  PASS         - -WhatIf performs no mutation and reports a preview record.
+  PASS         - Exit codes: missing source (2), existing shards without
+                 -Force (2), no shards found (2), wrong password (3),
+                 -Force re-embelish (0).
+  NOT RUN      - Windows PowerShell 5.1 runtime behaviour, Windows console
+                 password prompt and Task Scheduler execution (no Windows
+                 host in the sandbox).
+  NOT APPLICABLE - Code signing (performed by the owner at deployment).</maml:para>
+        <maml:para>CURRENT DOCUMENTATION CLARIFICATIONS
+Archive encryption is delegated to 7-Zip; this script does not implement a separate authenticity check. Base64 text grows beyond the binary volume size. WhatIf can still initialize/write/prune diagnostics. Force can remove old shards before archive success; failed conversion can leave partial shards. Multiple sets in one directory are refused even when SourcePath names one shard; gap validation is limited to the first number. The producer emits no checksum manifest. PowerShell NonInteractive is not a general control over native password prompts. Logs may include sourceLeaf and raw exception messages; review before sharing. See docs/embelish/operations.md for these preserved implementation limits.</maml:para>
+      </maml:alert>
+    </maml:alertSet>
+    <command:examples>
+      <command:example>
+        <maml:title>Example 1</maml:title>
+        <dev:code>.\embelish.ps1 -Mode Embelish -SourcePath C:\data\project -DestinationPath C:\vault\project</dev:code>
+        <dev:remarks>
+          <maml:para>Prompts for a password and writes encrypted base64 shards
+(embelish.7z.001.txt, ...) into C:\vault\project.</maml:para>
+        </dev:remarks>
+      </command:example>
+      <command:example>
+        <maml:title>Example 2</maml:title>
+        <dev:code>.\embelish.ps1 -Mode Deembelish -SourcePath C:\vault\project -DestinationPath C:\restore\project</dev:code>
+        <dev:remarks>
+          <maml:para>Reads the base64 shards in C:\vault\project, prompts for the password and
+restores the folder into C:\restore\project.</maml:para>
+        </dev:remarks>
+      </command:example>
+      <command:example>
+        <maml:title>Example 3</maml:title>
+        <dev:code>.\embelish.ps1 -Mode Embelish -SourcePath C:\data\project -DestinationPath C:\vault\project -WhatIf</dev:code>
+        <dev:remarks>
+          <maml:para>Shows what would happen without creating any archive.</maml:para>
+        </dev:remarks>
+      </command:example>
+    </command:examples>
+  </command:command>
+  <command:command>
+    <command:details>
+      <command:name>Get-EmbelishTimestamp</command:name>
+      <maml:description>
+        <maml:para>Returns the current UTC time as an ISO-8601 string.</maml:para>
+      </maml:description>
+    </command:details>
+    <command:syntax>
+      <command:syntaxItem>
+        <maml:name>Get-EmbelishTimestamp</maml:name>
+      </command:syntaxItem>
+    </command:syntax>
+    <command:parameters />
+  </command:command>
+  <command:command>
+    <command:details>
+      <command:name>Write-DiagnosticEvent</command:name>
+      <maml:description>
+        <maml:para>Appends one sanitised JSON Lines diagnostic record to the run log.</maml:para>
+      </maml:description>
+    </command:details>
+    <maml:description>
+      <maml:para>Logging failures never abort the business operation; they degrade to a
+single warning. Callers must pass only non-secret fields in -Data.</maml:para>
+    </maml:description>
+    <command:syntax>
+      <command:syntaxItem>
+        <maml:name>Write-DiagnosticEvent</maml:name>
+        <command:parameter required="true" position="0">
+          <maml:name>Stage</maml:name>
+          <command:parameterValue required="true">String</command:parameterValue>
+        </command:parameter>
+        <command:parameter required="false" position="1">
+          <maml:name>Level</maml:name>
+          <command:parameterValue required="true">String</command:parameterValue>
+        </command:parameter>
+        <command:parameter required="false" position="2">
+          <maml:name>Data</maml:name>
+          <command:parameterValue required="true">Hashtable</command:parameterValue>
+        </command:parameter>
+      </command:syntaxItem>
+    </command:syntax>
+    <command:parameters>
+      <command:parameter required="true" position="0" pipelineInput="false" globbing="false">
+        <maml:name>Stage</maml:name>
+        <maml:description />
+        <command:parameterValue required="true">String</command:parameterValue>
+        <dev:type>
+          <maml:name>String</maml:name>
+        </dev:type>
+      </command:parameter>
+      <command:parameter required="false" position="1" pipelineInput="false" globbing="false">
+        <maml:name>Level</maml:name>
+        <maml:description />
+        <command:parameterValue required="true">String</command:parameterValue>
+        <dev:type>
+          <maml:name>String</maml:name>
+        </dev:type>
+        <dev:defaultValue>info</dev:defaultValue>
+      </command:parameter>
+      <command:parameter required="false" position="2" pipelineInput="false" globbing="false">
+        <maml:name>Data</maml:name>
+        <maml:description />
+        <command:parameterValue required="true">Hashtable</command:parameterValue>
+        <dev:type>
+          <maml:name>Hashtable</maml:name>
+        </dev:type>
+      </command:parameter>
+    </command:parameters>
+  </command:command>
+  <command:command>
+    <command:details>
+      <command:name>Initialize-DiagnosticContext</command:name>
+      <maml:description>
+        <maml:para>Resolves the log directory, opens a per-run log file and prunes old logs.</maml:para>
+      </maml:description>
+    </command:details>
+    <command:syntax>
+      <command:syntaxItem>
+        <maml:name>Initialize-DiagnosticContext</maml:name>
+        <command:parameter required="false" position="0">
+          <maml:name>RequestedDirectory</maml:name>
+          <command:parameterValue required="true">String</command:parameterValue>
+        </command:parameter>
+      </command:syntaxItem>
+    </command:syntax>
+    <command:parameters>
+      <command:parameter required="false" position="0" pipelineInput="false" globbing="false">
+        <maml:name>RequestedDirectory</maml:name>
+        <maml:description />
+        <command:parameterValue required="true">String</command:parameterValue>
+        <dev:type>
+          <maml:name>String</maml:name>
+        </dev:type>
+      </command:parameter>
+    </command:parameters>
+  </command:command>
+  <command:command>
+    <command:details>
+      <command:name>Resolve-SevenZipPath</command:name>
+      <maml:description>
+        <maml:para>Locates the 7-Zip executable, honouring an explicit path first.</maml:para>
+      </maml:description>
+    </command:details>
+    <command:syntax>
+      <command:syntaxItem>
+        <maml:name>Resolve-SevenZipPath</maml:name>
+        <command:parameter required="false" position="0">
+          <maml:name>ExplicitPath</maml:name>
+          <command:parameterValue required="true">String</command:parameterValue>
+        </command:parameter>
+      </command:syntaxItem>
+    </command:syntax>
+    <command:parameters>
+      <command:parameter required="false" position="0" pipelineInput="false" globbing="false">
+        <maml:name>ExplicitPath</maml:name>
+        <maml:description />
+        <command:parameterValue required="true">String</command:parameterValue>
+        <dev:type>
+          <maml:name>String</maml:name>
+        </dev:type>
+      </command:parameter>
+    </command:parameters>
+  </command:command>
+  <command:command>
+    <command:details>
+      <command:name>Invoke-SevenZipCommand</command:name>
+      <maml:description>
+        <maml:para>Runs 7-Zip so it inherits the console, recording its exit code in
+$script:LastSevenZipExit.</maml:para>
+      </maml:description>
+    </command:details>
+    <maml:description>
+      <maml:para>7-Zip writes its password prompt to stdout and only prompts when stdout
+is a terminal. Any pipe, redirection or output capture here would hide
+the prompt and deadlock, so 7-Zip must inherit this script's console and
+its progress output necessarily shares that console. The exit code is
+returned through a script variable rather than the pipeline to avoid
+capturing (and thereby redirecting) that output.</maml:para>
+    </maml:description>
+    <command:syntax>
+      <command:syntaxItem>
+        <maml:name>Invoke-SevenZipCommand</maml:name>
+        <command:parameter required="true" position="0">
+          <maml:name>Executable</maml:name>
+          <command:parameterValue required="true">String</command:parameterValue>
+        </command:parameter>
+        <command:parameter required="true" position="1">
+          <maml:name>ArgumentList</maml:name>
+          <command:parameterValue required="true">String[]</command:parameterValue>
+        </command:parameter>
+      </command:syntaxItem>
+    </command:syntax>
+    <command:parameters>
+      <command:parameter required="true" position="0" pipelineInput="false" globbing="false">
+        <maml:name>Executable</maml:name>
+        <maml:description />
+        <command:parameterValue required="true">String</command:parameterValue>
+        <dev:type>
+          <maml:name>String</maml:name>
+        </dev:type>
+      </command:parameter>
+      <command:parameter required="true" position="1" pipelineInput="false" globbing="false">
+        <maml:name>ArgumentList</maml:name>
+        <maml:description />
+        <command:parameterValue required="true">String[]</command:parameterValue>
+        <dev:type>
+          <maml:name>String[]</maml:name>
+        </dev:type>
+      </command:parameter>
+    </command:parameters>
+  </command:command>
+  <command:command>
+    <command:details>
+      <command:name>Resolve-SevenZipOutcome</command:name>
+      <maml:description>
+        <maml:para>Classifies a 7-Zip exit code into a structured outcome.</maml:para>
+      </maml:description>
+    </command:details>
+    <command:syntax>
+      <command:syntaxItem>
+        <maml:name>Resolve-SevenZipOutcome</maml:name>
+        <command:parameter required="true" position="0">
+          <maml:name>ExitCode</maml:name>
+          <command:parameterValue required="true">Int32</command:parameterValue>
+        </command:parameter>
+      </command:syntaxItem>
+    </command:syntax>
+    <command:parameters>
+      <command:parameter required="true" position="0" pipelineInput="false" globbing="false">
+        <maml:name>ExitCode</maml:name>
+        <maml:description />
+        <command:parameterValue required="true">Int32</command:parameterValue>
+        <dev:type>
+          <maml:name>Int32</maml:name>
+        </dev:type>
+      </command:parameter>
+    </command:parameters>
+  </command:command>
+  <command:command>
+    <command:details>
+      <command:name>Assert-SevenZipOutcome</command:name>
+      <maml:description>
+        <maml:para>Throws a typed, categorised error when 7-Zip did not succeed.</maml:para>
+      </maml:description>
+    </command:details>
+    <command:syntax>
+      <command:syntaxItem>
+        <maml:name>Assert-SevenZipOutcome</maml:name>
+        <command:parameter required="true" position="0">
+          <maml:name>Outcome</maml:name>
+          <command:parameterValue required="true">PSObject</command:parameterValue>
+        </command:parameter>
+      </command:syntaxItem>
+    </command:syntax>
+    <command:parameters>
+      <command:parameter required="true" position="0" pipelineInput="false" globbing="false">
+        <maml:name>Outcome</maml:name>
+        <maml:description />
+        <command:parameterValue required="true">PSObject</command:parameterValue>
+        <dev:type>
+          <maml:name>PSObject</maml:name>
+        </dev:type>
+      </command:parameter>
+    </command:parameters>
+  </command:command>
+  <command:command>
+    <command:details>
+      <command:name>New-CleanOutputDirectory</command:name>
+      <maml:description>
+        <maml:para>Ensures a destination directory exists, applying -Force overwrite rules.</maml:para>
+      </maml:description>
+    </command:details>
+    <command:syntax>
+      <command:syntaxItem>
+        <maml:name>New-CleanOutputDirectory</maml:name>
+        <command:parameter required="true" position="0">
+          <maml:name>Path</maml:name>
+          <command:parameterValue required="true">String</command:parameterValue>
+        </command:parameter>
+        <command:parameter required="false" position="named">
+          <maml:name>AllowExisting</maml:name>
+        </command:parameter>
+      </command:syntaxItem>
+    </command:syntax>
+    <command:parameters>
+      <command:parameter required="true" position="0" pipelineInput="false" globbing="false">
+        <maml:name>Path</maml:name>
+        <maml:description />
+        <command:parameterValue required="true">String</command:parameterValue>
+        <dev:type>
+          <maml:name>String</maml:name>
+        </dev:type>
+      </command:parameter>
+      <command:parameter required="false" position="named" pipelineInput="false" globbing="false">
+        <maml:name>AllowExisting</maml:name>
+        <maml:description />
+        <dev:type>
+          <maml:name>SwitchParameter</maml:name>
+        </dev:type>
+      </command:parameter>
+    </command:parameters>
+  </command:command>
+  <command:command>
+    <command:details>
+      <command:name>ConvertTo-Base64Shard</command:name>
+      <maml:description>
+        <maml:para>Writes a binary 7-Zip volume as a single-line base64 text shard.</maml:para>
+      </maml:description>
+    </command:details>
+    <command:syntax>
+      <command:syntaxItem>
+        <maml:name>ConvertTo-Base64Shard</maml:name>
+        <command:parameter required="true" position="0">
+          <maml:name>VolumePath</maml:name>
+          <command:parameterValue required="true">String</command:parameterValue>
+        </command:parameter>
+        <command:parameter required="true" position="1">
+          <maml:name>ShardPath</maml:name>
+          <command:parameterValue required="true">String</command:parameterValue>
+        </command:parameter>
+      </command:syntaxItem>
+    </command:syntax>
+    <command:parameters>
+      <command:parameter required="true" position="0" pipelineInput="false" globbing="false">
+        <maml:name>VolumePath</maml:name>
+        <maml:description />
+        <command:parameterValue required="true">String</command:parameterValue>
+        <dev:type>
+          <maml:name>String</maml:name>
+        </dev:type>
+      </command:parameter>
+      <command:parameter required="true" position="1" pipelineInput="false" globbing="false">
+        <maml:name>ShardPath</maml:name>
+        <maml:description />
+        <command:parameterValue required="true">String</command:parameterValue>
+        <dev:type>
+          <maml:name>String</maml:name>
+        </dev:type>
+      </command:parameter>
+    </command:parameters>
+  </command:command>
+  <command:command>
+    <command:details>
+      <command:name>ConvertFrom-Base64Shard</command:name>
+      <maml:description>
+        <maml:para>Restores a binary 7-Zip volume from a base64 text shard.</maml:para>
+      </maml:description>
+    </command:details>
+    <command:syntax>
+      <command:syntaxItem>
+        <maml:name>ConvertFrom-Base64Shard</maml:name>
+        <command:parameter required="true" position="0">
+          <maml:name>ShardPath</maml:name>
+          <command:parameterValue required="true">String</command:parameterValue>
+        </command:parameter>
+        <command:parameter required="true" position="1">
+          <maml:name>VolumePath</maml:name>
+          <command:parameterValue required="true">String</command:parameterValue>
+        </command:parameter>
+      </command:syntaxItem>
+    </command:syntax>
+    <command:parameters>
+      <command:parameter required="true" position="0" pipelineInput="false" globbing="false">
+        <maml:name>ShardPath</maml:name>
+        <maml:description />
+        <command:parameterValue required="true">String</command:parameterValue>
+        <dev:type>
+          <maml:name>String</maml:name>
+        </dev:type>
+      </command:parameter>
+      <command:parameter required="true" position="1" pipelineInput="false" globbing="false">
+        <maml:name>VolumePath</maml:name>
+        <maml:description />
+        <command:parameterValue required="true">String</command:parameterValue>
+        <dev:type>
+          <maml:name>String</maml:name>
+        </dev:type>
+      </command:parameter>
+    </command:parameters>
+  </command:command>
+  <command:command>
+    <command:details>
+      <command:name>Resolve-ShardManifest</command:name>
+      <maml:description>
+        <maml:para>Resolves the ordered base64 shard set ('&lt;base&gt;.7z.NNN.txt') from a file
+or folder path and returns the shards with their base archive name.</maml:para>
+      </maml:description>
+    </command:details>
+    <command:syntax>
+      <command:syntaxItem>
+        <maml:name>Resolve-ShardManifest</maml:name>
+        <command:parameter required="true" position="0">
+          <maml:name>Path</maml:name>
+          <command:parameterValue required="true">String</command:parameterValue>
+        </command:parameter>
+      </command:syntaxItem>
+    </command:syntax>
+    <command:parameters>
+      <command:parameter required="true" position="0" pipelineInput="false" globbing="false">
+        <maml:name>Path</maml:name>
+        <maml:description />
+        <command:parameterValue required="true">String</command:parameterValue>
+        <dev:type>
+          <maml:name>String</maml:name>
+        </dev:type>
+      </command:parameter>
+    </command:parameters>
+  </command:command>
+  <command:command>
+    <command:details>
+      <command:name>Invoke-EmbelishOperation</command:name>
+      <maml:description>
+        <maml:para>Packs a folder into an encrypted, split 7-Zip archive, storing the
+summary in $script:OperationResult.</maml:para>
+      </maml:description>
+    </command:details>
+    <command:syntax>
+      <command:syntaxItem>
+        <maml:name>Invoke-EmbelishOperation</maml:name>
+        <command:parameter required="true" position="0">
+          <maml:name>SevenZip</maml:name>
+          <command:parameterValue required="true">String</command:parameterValue>
+        </command:parameter>
+        <command:parameter required="true" position="1">
+          <maml:name>Options</maml:name>
+          <command:parameterValue required="true">Hashtable</command:parameterValue>
+        </command:parameter>
+      </command:syntaxItem>
+    </command:syntax>
+    <command:parameters>
+      <command:parameter required="true" position="0" pipelineInput="false" globbing="false">
+        <maml:name>SevenZip</maml:name>
+        <maml:description />
+        <command:parameterValue required="true">String</command:parameterValue>
+        <dev:type>
+          <maml:name>String</maml:name>
+        </dev:type>
+      </command:parameter>
+      <command:parameter required="true" position="1" pipelineInput="false" globbing="false">
+        <maml:name>Options</maml:name>
+        <maml:description />
+        <command:parameterValue required="true">Hashtable</command:parameterValue>
+        <dev:type>
+          <maml:name>Hashtable</maml:name>
+        </dev:type>
+      </command:parameter>
+    </command:parameters>
+  </command:command>
+  <command:command>
+    <command:details>
+      <command:name>Invoke-DeembelishOperation</command:name>
+      <maml:description>
+        <maml:para>Extracts an encrypted, split 7-Zip archive back into a folder, storing
+the summary in $script:OperationResult.</maml:para>
+      </maml:description>
+    </command:details>
+    <command:syntax>
+      <command:syntaxItem>
+        <maml:name>Invoke-DeembelishOperation</maml:name>
+        <command:parameter required="true" position="0">
+          <maml:name>SevenZip</maml:name>
+          <command:parameterValue required="true">String</command:parameterValue>
+        </command:parameter>
+        <command:parameter required="true" position="1">
+          <maml:name>Options</maml:name>
+          <command:parameterValue required="true">Hashtable</command:parameterValue>
+        </command:parameter>
+      </command:syntaxItem>
+    </command:syntax>
+    <command:parameters>
+      <command:parameter required="true" position="0" pipelineInput="false" globbing="false">
+        <maml:name>SevenZip</maml:name>
+        <maml:description />
+        <command:parameterValue required="true">String</command:parameterValue>
+        <dev:type>
+          <maml:name>String</maml:name>
+        </dev:type>
+      </command:parameter>
+      <command:parameter required="true" position="1" pipelineInput="false" globbing="false">
+        <maml:name>Options</maml:name>
+        <maml:description />
+        <command:parameterValue required="true">Hashtable</command:parameterValue>
+        <dev:type>
+          <maml:name>Hashtable</maml:name>
+        </dev:type>
+      </command:parameter>
+    </command:parameters>
+  </command:command>
+  <command:command>
+    <command:details>
+      <command:name>ConvertTo-ResultRecord</command:name>
+      <maml:description>
+        <maml:para>Stamps shared fields onto an operation record and returns it as the
+single summary object emitted to the success stream.</maml:para>
+      </maml:description>
+    </command:details>
+    <command:syntax>
+      <command:syntaxItem>
+        <maml:name>ConvertTo-ResultRecord</maml:name>
+        <command:parameter required="true" position="0">
+          <maml:name>Fields</maml:name>
+          <command:parameterValue required="true">OrderedDictionary</command:parameterValue>
+        </command:parameter>
+      </command:syntaxItem>
+    </command:syntax>
+    <command:parameters>
+      <command:parameter required="true" position="0" pipelineInput="false" globbing="false">
+        <maml:name>Fields</maml:name>
+        <maml:description />
+        <command:parameterValue required="true">OrderedDictionary</command:parameterValue>
+        <dev:type>
+          <maml:name>OrderedDictionary</maml:name>
+        </dev:type>
+      </command:parameter>
+    </command:parameters>
+  </command:command>
+  <command:command>
+    <command:details>
+      <command:name>Resolve-ExitCodeFromError</command:name>
+      <maml:description>
+        <maml:para>Maps a terminating error to a documented process exit code.</maml:para>
+      </maml:description>
+    </command:details>
+    <command:syntax>
+      <command:syntaxItem>
+        <maml:name>Resolve-ExitCodeFromError</maml:name>
+        <command:parameter required="true" position="0">
+          <maml:name>ErrorRecord</maml:name>
+          <command:parameterValue required="true">ErrorRecord</command:parameterValue>
+        </command:parameter>
+      </command:syntaxItem>
+    </command:syntax>
+    <command:parameters>
+      <command:parameter required="true" position="0" pipelineInput="false" globbing="false">
+        <maml:name>ErrorRecord</maml:name>
+        <maml:description />
+        <command:parameterValue required="true">ErrorRecord</command:parameterValue>
+        <dev:type>
+          <maml:name>ErrorRecord</maml:name>
+        </dev:type>
+      </command:parameter>
+    </command:parameters>
+  </command:command>
+</helpItems>

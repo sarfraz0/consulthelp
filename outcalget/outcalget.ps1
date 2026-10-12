@@ -1,450 +1,6 @@
 ﻿#requires -Version 5.1
 
-<#
-.SYNOPSIS
-Exports configured Outlook Classic calendars, with named configurations and coordinated concurrent runs.
-.DESCRIPTION
-outcalget 0.3.5. One Windows PowerShell 5.1 file; no administrator rights, runtime
-modules/downloads, Graph permissions, endpoint exclusions or policy bypass.
-The native Outlook exporter preserves Full details, today through today + 29 LOCAL
-calendar dates inclusive, unrestricted working hours and saved privacy/attachment
-choices. Private details and attachments default to off during new setup.
-Existing schema-1 configurations from 0.1.x and 0.2.0 are accepted unchanged.
-
-No -Profile means the existing default config.json. -Profile default selects that
-same file. -Profile team selects profiles\team.json beneath the existing local state
-root. A missing named profile fails with CONFIG_MISSING, exit 2: no default fallback
-and no setup prompt. -Configure -Profile team creates it after a successful test
-export. Named setup refuses an existing profile; use a new name to create another
-binding. -Config remains available for existing explicit configuration paths and
-cannot be combined with -Profile. Export profile names are NOT Outlook MAPI profile
-names; the configuration's profileName still binds the actual Outlook session.
-
-Calendar setup offers (1) the original Outlook folder picker, (2) another mailbox's
-shared default Exchange calendar by full owner email, and (3) accessible calendars
-already added to Outlook's Calendar navigation list. Option 3 addresses shared/linked
-calendars absent from PickFolder. Only option 2 uses GetSharedDefaultFolder; it does
-not select arbitrary secondary shared calendars. Both paths use the same native
-GetCalendarExporter/SaveAsICal operation. Outlook sharing/export permissions apply.
-No email, invitation or sharing request is sent.
-For validated option-2 shared-default bindings, Outlook can return Folder.Store=null
-by design. This is accepted after Exchange owner identity has been revalidated;
-native Application Folders synchronization still runs before an owned-session export.
-A null Store on an ordinary folder binding or an explicit non-Exchange store fails
-cleanly instead of claiming synchronization. Each export additionally inspects the
-native CalendarSharing.Folder and uses NameSpace.CompareEntryIDs to verify that the
-exporter targets the resolved calendar before SaveAsICal. Shared mailbox identity
-pinning also uses CompareEntryIDs because different entry-ID representations can
-refer to the same object. Native folder bindings additionally retain store validation.
-
-Internet availability is required, using Windows Network List Manager. When Outlook
-Classic is already open by the user, the helper attaches, performs no explicit sync
-and leaves it open. Otherwise it starts the machine-registered Classic installation
-in the saved MAPI profile for configured exports; interactive setup uses normal Outlook
-startup/default-profile behavior and can display its usual profile/sign-in dialogs.
-The helper waits for native readiness/online Exchange/group sync and requests normal
-Quit only for the exact process it started. Other exports can join
-that process. The creator waits for all joined usage leases before closing it; joined
-runs synchronize their own selected calendars and never request Quit themselves.
-Your ordinary configured Windows user must be logged on in the same desktop session.
--NonInteractive cannot suppress Office sign-in/security dialogs. Logged-off/server
-Office automation and new Outlook are unsupported.
-
-REQUIRED TASK SCHEDULER SETTINGS
-Create one task per export profile when you want calendars to run concurrently.
-General: configured ordinary user; Run only when user is logged on; Run with highest
-privileges OFF. Do not use SYSTEM, Password/S4U or Run whether user is logged on or not.
-Choose the desired trigger; use a 1-2 minute delay for an at-logon trigger.
-
-Action = Start a program; substitute your approved absolute paths:
-  Program/script: C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe
-  Add arguments:  -NoLogo -NoProfile -NonInteractive -WindowStyle Hidden -STA -File "C:\ApprovedTools\outcalget.ps1" -Scheduled -Profile team -Debug
-  Start in:       C:\ApprovedTools
-Omit -Profile team for the original default calendar. Append -Config "C:\...\config.json"
-only for a legacy explicit configuration path, never alongside -Profile.
-No shell redirects, execution-policy switches, task registration or elevation are used.
-
-For each task: If already running, Do not start a new instance. Different tasks can
-run concurrently with different profiles. Do not enable automatic failure retries.
-Optional Run as soon as possible after a missed start is suitable only while signed in
-and online. Do not require idle; allow battery execution and avoid battery-transition
-stops if needed. Do not wake the laptop by default. Sleep/logoff prevents export.
-Allow at least 60 minutes before Scheduler's external stop limit with the defaults,
-so several bounded coordination, worker and cleanup waits cannot trigger a hard stop.
-Increase that limit if you raise budgets or add many contending calendars; no duration
-is guaranteed for arbitrary contention. Network condition is optional: the script
-always checks Windows Internet status. An employer may restrict task creation.
-
-CONFIGURATION AND CONCURRENCY
-State root: %LOCALAPPDATA%\osp\consulthelp\outcalget.
-Default: config.json. Named: profiles\<lowercase-name>.json. Names are case insensitive,
-1-48 ASCII letters/digits/hyphens/underscores, starting with a letter/digit; reserved DOS
-device names are forbidden. Existing configurations are bound to Windows SID, Outlook
-MAPI profile and exact native folder identifiers. Shared-default bindings instead pin
-the resolved Exchange directory owner ID and save its canonical SMTP address; every
-worker resolves and checks that identity again. Mailbox/directory changes can require
-explicit reconfiguration. Configuration and operational state contain sensitive IDs.
-
-Different output paths are mandatory. Persistent private output-claims\<hash>.json
-records reserve each physical filename for its canonical configuration path. The
-managed default/named catalog is also checked, protecting old unregistered configs.
-Explicit custom configs register claims when used; other unused custom config paths
-cannot be discovered. Copies/moves do not automatically transfer output ownership.
-A claim remains if a profile or output file is deleted, preventing accidental reuse.
-Failed new setup removes only its own new claim when the outcome is certain.
-
-To deliberately retire a claim: finish all helper runs; review the protected record's
-configurationIdentity and outputIdentity; ensure every referencing task/configuration
-has been retired or redirected, then remove only that claim. Claims are not recovery
-markers and must not be routinely deleted. No automated reassignment is provided.
-Catalogs over 256 profiles and malformed managed configurations fail clearly.
-
-Drive aliases are resolved through read-only Windows volume-GUID metadata. Hard-linked
-configuration/output/staging targets and reparse points are rejected. Output cannot
-be inside protected runs, locks, profiles, output-claims or default logs directories.
-The canonical destination is checked again immediately before publication. Existing
-conservative local fixed-NTFS/private-ACL/path-length rules are retained (see SECURITY).
-
-Per-configuration, actual-calendar and output locks reject unsafe overlap with exit 6.
-Known native folder bindings and shared-owner bindings are reserved before startup.
-All Outlook COM worker operations are queued through one bounded gate: the script
-supports concurrently active runs; native Outlook calls are serialized. Short lifecycle
-coordination gates protect startup, sync membership and close decisions. Live parent
-PID/start-time/session checks plus shared usage handles prevent closing under another
-export. If the last usage lease cannot be confirmed released within the budget, Outlook
-is left open and recovery is required. One Outlook instance supports one MAPI profile;
-concurrent export profiles must use that same currently running Outlook MAPI profile.
-Install the same current script for all tasks. Upgrade only with no helper running;
-do not run older copies concurrently, since they do not implement these leases.
-.PARAMETER Configure
-Interactive source/options selection and a test export. Saves only after success and
-requires an unoccupied output filename. Never put this switch in a scheduled action.
-With -Profile, creates a new named configuration and refuses an existing named file.
-Starts Classic if closed, waits for its profile/stores and online Exchange, then offers
-selection. The selected calendar is synchronized before the test export when the
-session is script-owned. Existing user sessions are left open and receive no explicit
-sync. Only this run's owned startup process is eligible for normal Quit during cleanup.
-.PARAMETER ExportProfile
-Alias: -Profile. Names an export configuration; no selector or default reuses the
-original config.json. This never selects or changes the Outlook MAPI profile.
-.PARAMETER Config
-Legacy explicit absolute local .json path; mutually exclusive with -Profile.
-.PARAMETER Check
-Read-only business preflight of config/source/apparent path/output ownership. Requires
-already-open Outlook. No native export, output write, claim registration, explicit sync
-or freshness/consumer test. Operational logs, locks and private worker files can occur.
-.PARAMETER Scheduled
-Non-prompting saved export plus scheduled metadata. Does not create a task or alter
-business behavior. Incompatible with Configure, Check, Help and Version parameter sets.
-.PARAMETER CoordinationTimeoutSeconds
-Default 300 seconds, range 15-1800. Applies to each catalog/lifecycle/COM-queue or
-joined-session cleanup wait. Worker queue time is additional to its native-work budget;
-parent monitoring detects native start separately and also enforces a total deadline.
-A busy same-configuration/calendar/output lock fails immediately rather than queuing.
-.PARAMETER StartupTimeoutSeconds
-Export-only readiness budget, default 120 seconds, range 15-600. Includes native COM,
-saved-source and primary online Exchange readiness for script-owned sessions; blocking
-COM work is isolated in a bounded worker process. Configure uses the embedded defaults.
-.PARAMETER SyncTimeoutSeconds
-Export-only native group synchronization budget, default 180 seconds, range 30-600.
-Applies to a process started here and to joined script-owned sessions. Existing user
-sessions receive no explicit sync. Native sync completion is not proof of freshness.
-Connection recovery shares this same budget, never a fresh timeout. At most three
-native starts are allowed; each interrupted attempt is stopped/detached and a new
-correlated completion is required after recovery. Explicit Work Offline fails promptly.
-.PARAMETER LogDirectory
-Absolute approved private local directory; default state-root\logs. Does not relocate
-configuration, ownership claims or operational state. Overrides the embedded log path.
-.PARAMETER Json
-One result JSON envelope on stdout, including handled failures. Schema 1 retains all
-existing fields and adds namedProfile, sourceType and joinedOwnedSession. Debug does
-not change it. Do not combine with WhatIf/Confirm, whose host output can corrupt JSON.
-.PARAMETER Help
-Compatibility alias for full Get-Help; also supports Get-Help and -?.
-.PARAMETER Version
-Prints 0.3.5 without Outlook access or run records.
-.EXAMPLE
-powershell.exe -NoLogo -NoProfile -STA -File "C:\ApprovedTools\outcalget.ps1" -Configure -Profile team -Debug
-Classic starts automatically if closed. Choose option 3 for a calendar already in the Calendar
-navigation list, or option 2 for a shared mailbox's default calendar. Choose a distinct
-output path. Later runs do not ask for a calendar, owner, options or output path.
-.EXAMPLE
-powershell.exe -NoLogo -NoProfile -NonInteractive -STA -File "C:\ApprovedTools\outcalget.ps1" -Scheduled -Debug
-Exports the existing default configuration without reconfiguration.
-.EXAMPLE
-powershell.exe -NoLogo -NoProfile -NonInteractive -STA -File "C:\ApprovedTools\outcalget.ps1" -Scheduled -Profile team -Debug
-Headless named export. Use the same arguments in that profile's Task Scheduler action.
-.EXAMPLE
-powershell.exe -NoLogo -NoProfile -NonInteractive -STA -File "C:\ApprovedTools\outcalget.ps1" -Check -Profile team -Json
-Read-only preflight. Outlook must already be open. Does not replace a real export test.
-.EXAMPLE
-powershell.exe -NoLogo -NoProfile -NonInteractive -STA -File "C:\ApprovedTools\outcalget.ps1" -Scheduled -Profile team -WhatIf -Debug
-Preview: no source access, export, startup, output claim or configuration changes.
-Minimal run logging may occur; retention is skipped. Configuration/source is not validated.
-.INPUTS
-None. Configurations are generated JSON data. Private worker switches are not public API.
-.OUTPUTS
-Normal CLI: UTC phase feedback, export/check summary, sanitized error on stderr, warnings
-and run-record path. Native hosts can render information/warnings on stdout. -Json
-suppresses phase feedback and provides one result envelope. Nonzero exits distinguish
-failure. Output ICS bytes are native Outlook output, not manually constructed events.
-.NOTES
-RUN RECORDS
-Required unique bounded UTF-8 JSON records initialize before business work, checkpoint
-parent phases, and finish with completed=true on handled completion. Normal records
-include outcome, safe source/lifecycle flags and phases. Debug adds allowlisted host
-versions, script SHA-256, codes, HRESULTs and timings to the SAME record, without prompts.
-Synchronization diagnostics retain at most 24 changed connection observations: Offline,
-primary Exchange mode, elapsed milliseconds and attempt number. These describe the
-primary account, not an independent measurement of the selected shared mailbox/cache.
-No calendar content, owner addresses, native IDs, profile names, paths, tokens or raw
-exceptions/child output enter logs. The additive failurePhase field preserves the
-primary error stage even after synchronization restoration or Outlook closure. The result
-envelope intentionally gives outputPath and runLogPath. Share only a reviewed run record; do not share config/profile files,
-output-claims, runs, partial ICS files or calendar exports for debugging.
-
-Retention attempts 200 closed records and 14 days, protecting active handles; inaccessible
-files remain with warnings. Required checkpoint failure stops later work. A completion
-log failure after publication reports exit 5 with published=true; a successful export is
-not undone. Optional debug enrichment cannot mask the primary result. A missing/incomplete
-record means UNKNOWN, including abrupt termination or Scheduler's external stop. An old
-calendar.ics may be stale after failure; correlate runId/time/completed/published/exitCode.
-Host binding, signing/policy/parse refusal and hard termination can precede any record.
-
-RECOVERY
-Only owned child workers can be stopped for timeout; Outlook is never forced closed.
-Native work may continue after worker loss. Per-output and global COM .lock.pending
-markers plus the owned lifecycle marker block unsafe retries, including other profiles.
-Normal completed COM calls remove only their own marker while still holding the COM
-queue gate. Handled uncertain work leaves Outlook open and retains protected artifacts.
-An alive lifecycle marker with ready/closing phase can belong to normal concurrent work;
-its existence alone is not a failure. Never remove a marker while a helper is running.
-
-To recover: close Outlook normally; ensure no outcalget parent/worker remains; inspect
-state-root\locks\*.lock.pending and their runId/time. Review runs\<runId>\sync\sync-state.json
-before deletion. If settingRestored=false, restore the selected folder checkbox in
-Outlook's Application Folders Send/Receive group to originalInclusion, or ask IT to do
-so. Multiple concurrent runs can have distinct recovery state; review every retained
-run involved. Then remove only the failed run's output/COM/lifecycle pending markers
-and, if needed, its runs\<runId> folder and .outcalget-<runId>.partial.ics stage. Leave
-ordinary .lock files, output-claims and final calendars intact. Old 0.2.0 lifecycle
-markers also require this review; they cannot be adopted as current live sessions.
-Rerun with -Debug. Do not clear recovery state while Outlook could still be writing.
-
-SYNCHRONIZATION AND CLOSURE LIMITS
-Successful owned/joined runs report synchronization=group_completed and a readable
-synchronizationSummary in the run record; CLI success says Outlook synchronization
-completed. The backward-compatible freshness=not_verified field means that server/cache
-equivalence was not independently checked, not that the observed synchronization was
-skipped or failed. Existing user sessions can have stale cached
-sources despite Internet status; synchronization=existing_session_not_requested records
-that choice. Owned/joined sessions require Offline=false and full-item Exchange mode
-600/700/800, include the selected folder temporarily in SyncObjects.AppFolders, observe
-correlated SyncStart/OnError/SyncEnd, and restore its original InAppFolderSyncObject value.
-Temporary nonready readings wait within the original sync budget. An interrupted
-attempt cannot authorize export after recovery: a fresh attempt must complete while
-full-item connection is observed. Attempts are capped at three. Work Offline modes
-100/200, native sync errors and Internet loss fail promptly; no Outlook connection
-settings are changed. Persistent connected headers-only mode 500 is reported as
-OUTLOOK_HEADERS_ONLY; persistent other nonready states retain OUTLOOK_CONNECTION_LOST
-with the actual last mode/Offline flag. Repeated recovered interruptions report
-OUTLOOK_CONNECTION_UNSTABLE. Full connection without completion times out normally.
-A narrow C# ComEventsHelper bridge and STA message pump use documented Outlook event
-metadata. Only numeric sync errors are retained. Application Folders can be created by
-Outlook and other members can sync. Non-Exchange or unavailable sync sources fail clearly.
-No Namespace.SendAndReceive or MailItem.Send is called. A group completion cannot prove
-that every shared-calendar server change reached the cache. Test representative content.
-
-Closure requires exact started PID/start time, one Outlook process in this desktop,
-no open items/additional explorers/inline drafts, released participant leases and a
-normal Quit followed by confirmed process exit. User activity or uncertain native work
-leaves Outlook open with nonzero status and recovery artifacts. Avoid using a script-
-started session during export; the user-activity check-to-Quit interval cannot be atomic.
-Abrupt parent termination cannot guarantee closure or setting restoration. Joined-run
-sync failure/cleanup uncertainty can also prevent the creator from safely closing.
-
-SECURITY / COMPATIBILITY
-Windows PowerShell 5.1 Desktop STA, FullLanguage and Windows .NET Framework 4.5+ are
-required by the COM adapter. Existing policy must permit COM and the transparent
-Add-Type bridges; blocked initialization fails without fallback/bypass. No runtime
-packages, credentials, Graph or tenant consent are needed. The file is unsigned: use
-your employer's existing approved signing/deployment process. Worker processes execute
-this SAME unchanged file under the same user with NoLogo/NoProfile/NonInteractive/STA.
-Startup reads HKLM App Paths without modification. Configured exports pass only the
-quoted saved /profile name to Classic; interactive setup supplies no profile switch
-and records the running MAPI profile after readiness and calendar selection. No broad Office process kill, registry/ACL/policy change,
-endpoint enumeration/exclusion or self-elevation is performed.
-
-Path metadata uses OPEN_EXISTING read-only kernel32 handles, volume-GUID final paths
-and file link counts; no backup privilege is enabled. Native Outlook sync and normal
-corporate monitoring can perform network activity. Internet gating uses Windows NLM
-IsConnectedToInternet, without helper HTTP/ping probes or overrides; corporate Windows
-status may report unavailable despite internal service access. This is a clean failure,
-not proof of Exchange reachability. Connectivity is checked before business work, during
-owned sync, before native save and publication, but can still disappear between checks.
-
-Retained deployment boundary: fixed local NTFS, no UNC/removable/reparse/short-name paths,
-absolute paths <=230 characters, output directory <=165 for staging space, private
-user/SYSTEM/Administrators ACLs with creator/owner recognized. Unknown corporate ACL
-principals fail. These are this tool's conservative snapshot rules, not general Windows
-requirements; supporting managed exceptions needs explicit design and target testing.
-Output defaults to 25 MiB max (1-250), timeout 120 seconds (30-600). Size is checked after
-native export, not a disk quota. ICS validation is structural, not complete RFC/consumer
-fidelity. Local dates include earlier appointments today; Outlook handles private details.
-
-EXIT CODES
-0 success/check/preview/help/version; 2 configuration/binding/output ownership;
-3 host/session/Internet/Outlook/access; 4 native export; 5 storage/logging/recovery;
-6 unsafe overlap; 7 bounded timeout/coordination; 8 handled cancellation; 9 protocol/
-unexpected error. Pre-body and abrupt-stop failures can use host/Scheduler codes.
-
-UPGRADE AND ACCEPTANCE
-Replace only the script while no helper is running; existing configuration and scheduled
-default action remain valid. Do not reconfigure a working default just to upgrade.
-For a named calendar: run the Configure/Profile example; Classic starts if closed. Select the
-correct source/output; Check/Profile preflight, then Scheduled/Profile/Debug actual export.
-Confirm current completed=true, published=true, exitCode=0 plus a refreshed destination
-and correct full details, private/attachment choices and 30-date range. Inspect recurring,
-all-day, Unicode, shared/private and boundary events in the intended calendar consumer.
-
-Test each task with Scheduler's Run, Last Run Result 0x0 AND its corresponding record/file;
-then a short temporary trigger while signed in. Test a locked desktop if required. Test
-user-open Outlook (left open), initially closed Outlook (started/synced/closed) and no
-Internet (failure preserves old file and never starts Outlook). Test two distinct profiles
-simultaneously with Outlook both open and closed: files stay separate; the startup creator
-closes only after both finish. Test a missing profile and duplicate output refusal. If a
-shared navigation binding cannot reopen after Classic restarts, try the shared-default
-owner option for default calendars; secondary provider-specific calendars can remain
-unavailable and fail explicitly. Do not replace native folder opening with cache scraping.
-
-FUNCTIONAL ACCEPTANCE FOR A SHARED CALENDAR
-A completed synchronization group or exit 0 alone does not prove server freshness
-or event completeness. After setup, inspect the actual generated .ics for a known
-appointment unique to that shared calendar within the next 30 local dates, checking
-its date/time and details. Compare with a manual full-details Outlook export using
-the same window; include recurring and all-day appointments when present. A valid
-empty file is allowed for a genuinely empty window, so check expected content rather
-than treating a nonzero event count as a source guarantee. Development fixtures
-exercise source routing and publication, not real Exchange event data.
-
-ENGINEERING / VERIFICATION, 4 OCTOBER 2026
-This revision retains native export semantics and schema-1 parsing; schema 2 is exact
-and conditional on sourceType. Pure business preflight and WhatIf remain distinct from
-export. ShouldProcess gates parent mutations; operational diagnostic I/O is the disclosed
-preview exception. Internal helpers do not introduce independent confirmation flows.
-
-Local complexity/length exceptions remain on the existing parser/validation/native worker/
-entry transaction and coherent ownership/recipient/navigation/setup/progress helpers.
-Four-space indentation and at most six internal parameters are retained; no claim that
-all default complexity/nesting/80-line budgets pass is made. The COM worker combines
-acquisition/export/reply/reference lifetime to preserve the common native operation.
-No blanket analyzer suppression is used; the narrow Framework Windows.Forms compatibility
-exception documents its explicit assembly load. Development tests/fixtures are not shipped.
-
-PASS: PowerShell 7.4.6 parser and PSScriptAnalyzer 1.24.0 default rules plus
-PSUseCompatibleSyntax (5.1), PSUseCompatibleCommands and PSUseCompatibleTypes against
-win-48_x64_10.0.17763.0_5.1.17763.316_x64_4.0.30319.42000_framework, with zero issues
-outside the documented narrow explicit Windows.Forms load exception.
-PASS (0.3.2 baseline): 285 executable development checks on Linux/PowerShell
-7.4.6: 48 portable
-regressions; 9 log/scheduler checks; 16 native-settings/protocol/queue-budget checks;
-32 event/readiness/ownership checks; 32 baseline CLI checks; 21 lifecycle CLI checks;
-58 profile/shared/navigation/path-identity/lease/help checks; 57 profile/concurrent-worker
-process checks; 12 setup readiness/feedback/native argument checks. They cover native settings, Gregorian dates, byte-preserved old configs,
-named setup/reuse/failure, shared resolution/identity/permissions, safe diagnostics,
-output collision/claims/aliases, queued native calls, same-calendar overlap, joined
-startup/sync/closure, closed-session setup, setup cancellation/known failure, joined
-setup/export lifetimes, shared null-Store synchronization/restoration/failure diagnostics,
-and recovery after abrupt worker loss. Child processes, private
-transactions and file-sharing handles execute; Windows/Outlook/ACL/connectivity/native
-path reads/events are simulated. Argument dispatch executes to a harmless fixture
-child; its start-time identity is simulated because it is unavailable in this sandbox.
-Actual C# path bridge compilation and native struct
-layout are checked; this does not execute kernel32 or prove Windows metadata behavior.
-PASS (0.3.3 historical focused): 124 checks rerun on that revision: 64 profile/shared/source-identity
-checks and 60 parent/worker process checks. Native source-folder matching, equivalent
-entry IDs, shared-source-dependent synthetic ICS contents, and refusal to publish/save
-wrong-source results are covered. The complete 0.3.2 suite was not rerun then.
-Outlook and Windows boundaries
-remain simulated. Parser/analyzer/BOM/CRLF/version/help were checked on the final file.
-PASS (0.3.4 historical focused): 130 checks on that revision: 47 synchronization/readiness/ownership
-logic checks; 20 native-settings/worker-protocol/queue-budget audit checks; 63 profile/
-concurrent parent-worker process checks. Tests exercise interrupted sync recovery,
-discarded completion during disconnection, headers-only and Work Offline states,
-Internet loss, failed cleanup, three-attempt cap, one original deadline, bounded safe
-state observations and malformed-diagnostic refusal. Failed shared export/setup preserves
-existing bytes or remains unsaved; recovery diagnostics survive owned Outlook cleanup.
-The callback state machine executes with simulated COM events/message pumping; process
-fixtures execute real parent/workers and file transactions with Windows/Outlook boundaries
-simulated. Their wait fixture supplies chosen sync outcomes, so those process checks
-do not establish real Exchange recovery. The complete historical suite was not rerun.
-PASS (manual): profile/default compatibility, common native exporter settings, bounded
-process/COM ownership and output claims, ShouldProcess, allowlisted diagnostics, declared
-side effects and local complexity exceptions. UTF-8 BOM/CRLF checked before saving.
-Function/entry complexity was reviewed using AST-guided branch/loop/catch/logical counts
-and manual ownership review; no claim of threshold compliance, coverage percentage,
-duplication percentage or secret-scanner certification is made.
-NOT RUN: Windows PowerShell 5.1 execution, actual Outlook shared/navigation providers,
-Exchange freshness/SyncEnd/Quit, locked desktop, Task Scheduler, Windows NLM/ACL/NTFS,
-volume-GUID/drive-alias/hard-link behavior on Windows, architecture combinations,
-endpoint acceptance or consumer fidelity. No Windows/Outlook environment is available.
-USER-REPORTED PASS (0.3.0, one corporate laptop): legacy default export with Classic
-initially closed completed successfully. USER-REPORTED FAIL (0.3.0): named Configure
-with Classic closed stopped with OUTLOOK_NOT_RUNNING; the attached sanitized log
-confirmed that setup incorrectly used the already-open read-only path. Revision 0.3.1
-adds owned startup and bounded setup readiness, retains selected-calendar sync before
-test export, preserves initial-state diagnostics across setup/export entry, and clarifies
-synchronization feedback. Target execution of this fix remains NOT RUN here.
-USER-REPORTED FAIL (0.3.1): shared-default selection and readiness succeeded, then
-sync failed reading ExchangeStoreType from a null Folder.Store. Microsoft documents
-this null value for GetSharedDefaultFolder. Revision 0.3.2 accepts it only for a
-validated shared-default Exchange binding; retains native sync/checkpoint/restoration;
-records the failure stage before cleanup; and reports sourceType before path validation.
-Process fixtures now execute the actual synchronization adapter with null-Store shared
-folders instead of bypassing it. Target Windows execution remains NOT RUN here.
-Revision 0.3.3 additionally audits the remote lookup/export route, replaces direct
-shared owner-ID string comparison with documented MAPI CompareEntryIDs, and checks
-CalendarSharing.Folder against the resolved source before any native output write.
-Mismatch/unidentifiable sources cannot publish output or complete setup. Tests include
-equivalent-ID representations, wrong-source refusals and source-dependent synthetic ICS
-payloads. These checks do not prove real provider event completeness or freshness.
-USER-REPORTED FAIL (0.3.3): the supplied run reached shared-default lookup, source
-readiness and native sync start, then our single-reading connection guard failed in
-sync-wait with OUTLOOK_CONNECTION_LOST. No native ICS export was attempted. The record
-contains earlier primary mode 700 but omits the actual mode/Offline at failure;
-transient recovery versus persistent connection loss cannot be inferred from that log.
-Revision 0.3.4 adds bounded recovery with a fresh required sync attempt, records actual
-connection transitions on success/failure, and preserves Internet/full-details gates.
-This fixes premature failure on recoverable states; it does not claim the unrecorded
-state was transient or that the target shared export has now passed. Target Windows,
-Exchange and Task Scheduler execution remains NOT RUN here.
-Revision 0.3.5 retains an interrupted attempt's event listener until correlated
-completion after Stop, before subscribing a replacement. Cleanup uses only the
-remaining original synchronization budget and fails closed if completion is absent.
-This prevents queued cancellation from contaminating the replacement; cancellation
-or other errors on an active attempt still fail. Ten address-free deterministic
-regressions pass on Windows PowerShell 5.1, with Outlook events simulated. Actual
-shared-calendar export/content acceptance remains unverified for this revision.
-No production certification is claimed. Test fixtures, frameworks and additional implementation files are not delivered.
-.LINK
-https://learn.microsoft.com/en-us/office/vba/api/outlook.namespace.exchangeconnectionmode
-.LINK
-https://learn.microsoft.com/en-us/office/vba/api/outlook.olexchangeconnectionmode
-.LINK
-https://learn.microsoft.com/en-us/office/vba/api/outlook.namespace.compareentryids
-.LINK
-https://learn.microsoft.com/en-us/office/vba/api/outlook.calendarsharing.folder
-.LINK
-https://learn.microsoft.com/en-us/office/vba/api/outlook.folder.store
-.LINK
-https://learn.microsoft.com/en-us/office/vba/api/outlook.namespace.getshareddefaultfolder
-.LINK
-https://learn.microsoft.com/en-us/office/vba/api/outlook.navigationfolder.folder
-.LINK
-https://learn.microsoft.com/en-us/office/vba/api/outlook.namespace.logon
-.LINK
-https://learn.microsoft.com/en-us/windows/win32/taskschd/taskschedulerschema-logontype-principaltype-element
-#>
+# .EXTERNALHELP ../docs/outcalget/outcalget-help.xml
 [CmdletBinding(PositionalBinding = $false, SupportsShouldProcess = $true, ConfirmImpact = 'Low', DefaultParameterSetName = 'Export')]
 param(
     [Parameter(ParameterSetName = 'Configure')]
@@ -491,7 +47,7 @@ param(
     [Parameter(ParameterSetName = 'Worker', DontShow = $true)]
     [string]$WorkerToken
 )
-# -Debug is PowerShell's common parameter. Consume it without Write-Debug/Inquire prompts.
+
 $script:DiagnosticsRequested = $PSBoundParameters.ContainsKey('Debug') -and [bool]$PSBoundParameters['Debug']
 $DebugPreference = 'SilentlyContinue'
 $ErrorActionPreference = 'Stop'
@@ -505,7 +61,7 @@ function Stop-Outcalget {
     $e = [InvalidOperationException]::new($Message, $InnerException)
     $e.Data['OutcalgetCode'] = $Code
     $e.Data['OutcalgetExit'] = $ExitCode
-    # Optional phase metadata can be absent in a helper-only host before entry initialization.
+
     $e.Data['OutcalgetPhase'] = Get-Variable -Name Phase -Scope Script -ValueOnly -ErrorAction SilentlyContinue
     throw $e
 }
@@ -527,7 +83,7 @@ function Get-ExceptionInfo {
         if ($e.Data.Contains('OutcalgetCode')) {
             $code = [string]$e.Data['OutcalgetCode']
             $exitCode = [int]$e.Data['OutcalgetExit']
-            $message = $e.Message # Only messages constructed by Stop-Outcalget.
+            $message = $e.Message
         }
         if ($e.HResult -ne 0) {
             $bits = [BitConverter]::ToUInt32([BitConverter]::GetBytes([int]$e.HResult), 0)
@@ -612,7 +168,7 @@ function Write-AtomicJson {
         if ([IO.File]::Exists($temporary)) {
             try { [IO.File]::Delete($temporary) }
             catch {
-                # Preserve the primary write/publication error; report cleanup at the boundary.
+
                 $script:AtomicCleanupFailed = $true
             }
         }
@@ -643,10 +199,9 @@ function Read-BoundedText {
 }
 
 function Read-FlatJson {
-    # Local complexity exception: preserve the tested flat-schema duplicate-key validation; native JSON still decodes values.
+
     param([string]$Text)
-    # Tokenise the deliberately flat scalar schema before using the built-in JSON decoder.
-    # This detects duplicate/escaped duplicate keys that ConvertFrom-Json can otherwise discard.
+
     $stringPattern = '"(?:[^"\\\x00-\x1F]|\\(?:["\\/bfnrt]|u[0-9a-fA-F]{4}))*"'
     $tokenPattern = '\G[ \t\r\n]*(?<token>' + $stringPattern + '|true|false|null|-?(?:0|[1-9][0-9]*))'
     $tokenRegex = [regex]::new($tokenPattern, [Text.RegularExpressions.RegexOptions]::CultureInvariant, [TimeSpan]::FromSeconds(2))
@@ -707,7 +262,7 @@ function Read-FlatJson {
 }
 
 function Test-Configuration {
-    # Local complexity exception: exact conditional schemas preserve legacy bindings and fail closed on unknown source types.
+
     param($Values)
     $keys = @('schemaVersion', 'bindingId', 'userSid', 'profileName', 'outputPath',
         'includePrivateDetails', 'includeAttachments', 'timeoutSeconds', 'maxFileMiB')
@@ -884,7 +439,7 @@ function Test-PrivateEntry {
         Stop-Outcalget -Code 'ACL_OWNER_UNSUPPORTED' -Message 'This location has an unexpected owner. Choose a private location owned by this user or the system administrators.' -ExitCode 5
     }
     $rules = $acl.GetAccessRules($true, $true, [Security.Principal.SecurityIdentifier])
-    # Conservative: do not guess whether an unfamiliar corporate group is privileged.
+
     foreach ($rule in $rules) {
         if ($rule.AccessControlType -eq [Security.AccessControl.AccessControlType]::Allow -and
             ($rule.PropagationFlags -band [Security.AccessControl.PropagationFlags]::InheritOnly) -eq 0 -and
@@ -967,8 +522,7 @@ function Wait-PathLock {
 
 function Initialize-PathIdentityBridge {
     if ($null -ne ('Outcalget.PathIdentity' -as [type])) { return }
-    # Read-only metadata: volume-GUID paths detect drive aliases; link count rejects hard-linked targets.
-    # OPEN_EXISTING + zero access never creates/truncates a file. No privilege or policy changes.
+
     $source = @'
 using System;
 using System.ComponentModel;
@@ -1137,7 +691,7 @@ function Invoke-ComRead {
 }
 
 function Test-IcsLine {
-    # Local complexity exception: keep component state validation in one place to preserve native output acceptance.
+
     param([string]$Line, [hashtable]$State)
     if ($Line.Length -eq 0 -and $State.finished) {
         return
@@ -1197,7 +751,7 @@ function Test-IcsLine {
 }
 
 function Test-IcsFile {
-    # Local size/complexity exception: bounded reader, unfolding and disposal belong to one validation lifetime.
+
     param([string]$Path, [int]$MaxFileMiB)
     $stream = $null
     $reader = $null
@@ -1301,13 +855,12 @@ function Test-HostEnvironment {
 function Test-ExportApproval {
     [CmdletBinding(SupportsShouldProcess = $true, ConfirmImpact = 'Low')]
     param()
-    # A bound -Debug can force ShouldProcess confirmation independently of DebugPreference.
-    # This adapter is called with -Debug:$false; explicit Confirm/WhatIf are forwarded.
+
     return $PSCmdlet.ShouldProcess('configured calendar and local export', 'Export with Outlook Classic; save configuration only with -Configure')
 }
 
 function Test-DesktopSession {
-    # Interactive-token tasks share the user's desktop. Password/S4U tasks do not.
+
     if ($script:SessionElevated) {
         Stop-Outcalget -Code 'ELEVATION_UNSUPPORTED' -Message 'Use the configured ordinary user. Clear Run with highest privileges in Task Scheduler.' -ExitCode 3
     }
@@ -1356,14 +909,14 @@ function Write-PhaseMessage {
             Write-Information -InformationAction Continue -MessageData ('[{0} UTC] {1}' -f $stamp, $messages[$Phase])
         }
         catch {
-            # Console feedback is optional; the required sanitized run record remains authoritative.
+
             $script:ConsoleFeedbackFailed = $true
         }
     }
 }
 
 function Test-InternetConnection {
-    # Local complexity exception: fail-closed status/type/error classification and native-reference cleanup form one check.
+
     $network = $null
     try {
         $type = [Type]::GetTypeFromCLSID([Guid]::new('DCB00C01-570F-4A9B-8D69-199FDBA5723B'), $true)
@@ -1426,7 +979,7 @@ function Test-OutlookLease {
 }
 
 function Get-OutlookExecutable {
-    # Only machine-controlled App Paths are used; never PATH, a shell association or HKCU.
+
     foreach ($view in @([Microsoft.Win32.RegistryView]::Registry64, [Microsoft.Win32.RegistryView]::Registry32)) {
         $root = $null
         $key = $null
@@ -1457,7 +1010,7 @@ function Start-OutlookSession {
     $info = [Diagnostics.ProcessStartInfo]::new()
     $info.FileName = Get-OutlookExecutable
     if ([string]::IsNullOrWhiteSpace($ProfileName)) {
-        # Interactive setup has no saved binding yet: use normal Outlook startup.
+
         $info.Arguments = ''
     }
     else {
@@ -1517,7 +1070,7 @@ function Wait-OutlookConnection {
 }
 
 function Get-ReadyOutlookSetup {
-    # Local complexity exception: one bounded poll owns profile/store/connection checks and the per-attempt Stores reference lifetime.
+
     param($Session, [bool]$RequireOnline, [int]$TimeoutSeconds)
     Add-Trace -Phase 'outlook-setup-wait'
     $timer = [Diagnostics.Stopwatch]::StartNew()
@@ -1549,7 +1102,7 @@ function Get-ReadyOutlookSetup {
 }
 
 function Get-ReadyOutlookSource {
-    # A newly started profile can publish its COM application before stores load.
+
     param($Session, $Settings, [int]$TimeoutSeconds)
     $timer = [Diagnostics.Stopwatch]::StartNew()
     while ($timer.Elapsed.TotalSeconds -lt $TimeoutSeconds) {
@@ -1584,7 +1137,7 @@ function Close-ComReference {
 }
 
 function Get-SharedCalendarBinding {
-    # Local complexity exception: recipient resolution, mailbox identity pinning and transferred folder ownership share one COM-reference lifetime.
+
     param($Session, [string]$Owner, [string]$ExpectedOwnerId)
     Test-CalendarOwner -Owner $Owner
     $recipient = $null
@@ -1597,7 +1150,7 @@ function Get-SharedCalendarBinding {
             Stop-Outcalget -Code 'SHARED_OWNER_UNRESOLVED' -Message 'Outlook could not resolve the calendar owner. Check the full email address and directory access.' -ExitCode 3
         }
         $addressEntry = $recipient.AddressEntry
-        # This binding targets an Exchange directory mailbox, rather than an ambiguous display name or one-off recipient.
+
         if ([string]$addressEntry.Type -cne 'EX') {
             Stop-Outcalget -Code 'SHARED_OWNER_NOT_EXCHANGE' -Message 'The resolved owner is not an Exchange directory mailbox. Try selecting the already-added calendar from the Calendar navigation list.' -ExitCode 2
         }
@@ -1608,8 +1161,7 @@ function Get-SharedCalendarBinding {
         $smtp = [string]$exchangeUser.PrimarySmtpAddress
         $ownerId = [string]$addressEntry.ID
         Test-CalendarOwner -Owner $smtp
-        # Entry IDs can have different binary representations for the same object.
-        # Ask MAPI to compare the pinned owner rather than compare the strings.
+
         $ownerMatched = [string]::IsNullOrEmpty($ExpectedOwnerId)
         if (-not $ownerMatched -and -not [string]::IsNullOrWhiteSpace($ownerId)) {
             $ownerMatched = Invoke-ComRead -Action { [bool]$Session.CompareEntryIDs($ownerId, $ExpectedOwnerId) }
@@ -1692,7 +1244,7 @@ function Get-CalendarFingerprint {
 }
 
 function Get-NavigationCalendar {
-    # Local complexity exception: indexed COM traversal owns and releases each navigation reference in one scope.
+
     param($Application, [string]$Fingerprint)
     $explorer = $null
     $pane = $null
@@ -1770,9 +1322,7 @@ function Get-NavigationCalendar {
 
 function Initialize-SynchronizationBridge {
     if ($null -ne ('Outcalget.SyncMonitor' -as [type])) { return }
-    # A narrow native-event bridge avoids an optional Outlook PIA dependency and
-    # PowerShell callbacks on COM threads. GUID/DISPIDs verified against Microsoft's
-    # Outlook interop metadata: SyncStart 61441, OnError 61443, SyncEnd 61444.
+
     $source = @'
 using System;
 using System.Runtime.InteropServices;
@@ -1883,7 +1433,7 @@ function Close-SynchronizationAttempt {
 }
 
 function Wait-CalendarSynchronization {
-    # Local complexity exception: bounded connection recovery, correlated events and cleanup share one synchronization lifetime and deadline.
+
     [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseCompatibleTypes', '', Justification = 'The Desktop 5.1 profile lists default-loaded types only. Initialize-SynchronizationBridge explicitly loads the Windows .NET Framework System.Windows.Forms assembly before this internal helper is called. No cross-platform claim is made.')]
     [CmdletBinding()]
     param($SyncObject, $Session, [int]$TimeoutSeconds)
@@ -1910,7 +1460,7 @@ function Wait-CalendarSynchronization {
             }
             if (-not $state.ready) {
                 if ($null -ne $monitor) {
-                    # Completion from a disconnected attempt is never reused after recovery.
+
                     $remainingMilliseconds = [Math]::Max(0, ([long]$TimeoutSeconds * 1000) - $timer.ElapsedMilliseconds)
                     Close-SynchronizationAttempt -SyncObject $SyncObject -Monitor $monitor -Started $started -TimeoutMilliseconds $remainingMilliseconds
                     $monitor = $null
@@ -1980,7 +1530,7 @@ function ConvertTo-SafeConnectionObservation {
             $item.syncAttempt -lt 0 -or $item.syncAttempt -gt 3) {
             Stop-Outcalget -Code 'WORKER_PROTOCOL' -Message 'The worker returned invalid connection diagnostic values.' -ExitCode 9
         }
-        # Copy only numeric/boolean metadata, never extra fields from the reply.
+
         @{
             offline = $item.offline
             primaryExchangeConnectionMode = $item.primaryExchangeConnectionMode
@@ -1991,7 +1541,7 @@ function ConvertTo-SafeConnectionObservation {
 }
 
 function Invoke-CalendarSynchronization {
-    # Local complexity exception: native setting checkpoint/restoration and RCW release share one failure-safe ownership transaction.
+
     param($Folder, $Session, [int]$TimeoutSeconds, [bool]$SharedDefaultCalendar = $false)
     $store = $null
     $objects = $null
@@ -2001,8 +1551,7 @@ function Invoke-CalendarSynchronization {
     try {
         Add-Trace -Phase 'sync-prepare'
         $store = $Folder.Store
-        # Microsoft documents Store=null for GetSharedDefaultFolder. The caller
-        # permits this only after revalidating the pinned Exchange owner binding.
+
         if ($null -eq $store -and -not $SharedDefaultCalendar) {
             Stop-Outcalget -Code 'SOURCE_SYNC_UNSUPPORTED' -Message 'The selected calendar has no inspectable store and is not a validated shared-default Exchange binding. Select the shared default calendar by owner email when applicable.' -ExitCode 3
         }
@@ -2026,7 +1575,7 @@ function Invoke-CalendarSynchronization {
         Wait-CalendarSynchronization -SyncObject $sync -Session $Session -TimeoutSeconds $TimeoutSeconds
     }
     catch {
-        # Capture the primary native stage before restoration records cleanup phases.
+
         if (-not $_.Exception.Data.Contains('OutcalgetPhase')) {
             $_.Exception.Data['OutcalgetPhase'] = $script:Phase
         }
@@ -2077,7 +1626,7 @@ function Restore-SynchronizationSetting {
 }
 
 function Close-OutlookSession {
-    # Local complexity exception: every native user-activity guard must complete before the single irreversible Quit call.
+
     [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '', Justification = 'Internal cleanup of the verified process started by this export; never a pre-existing application.')]
     [CmdletBinding()]
     param($Application, $Lease)
@@ -2124,7 +1673,7 @@ function Close-OutlookSession {
 }
 
 function Read-WorkerFeedback {
-    # Local complexity exception: the correlated allowlist and optional native-start timestamp share one bounded progress read.
+
     param([string]$Directory, [string]$LastPhase)
     $path = Join-Path -Path $Directory -ChildPath 'progress.json'
     $phase = $null
@@ -2139,7 +1688,7 @@ function Read-WorkerFeedback {
             if ($progress.runId -ceq $script:RunId -and $progress.PSObject.Properties.Name -contains 'comAcquiredUtc' -and
                 $null -ne $progress.comAcquiredUtc) {
                 $captured = [datetime]::MinValue
-                # Native JSON decoders can materialize ISO timestamps as DateTime.
+
                 if ($progress.comAcquiredUtc -is [datetime]) {
                     $captured = $progress.comAcquiredUtc.ToUniversalTime()
                 }
@@ -2164,7 +1713,7 @@ function Read-WorkerFeedback {
 }
 
 function Get-OutlookCoordinatorState {
-    # Local complexity exception: exact marker shape and live PID/start-time/session checks fail closed as one ownership decision.
+
     param([string]$Path)
     if (-not [IO.File]::Exists($Path)) { return $null }
     Test-PrivateEntry -Path $Path
@@ -2234,7 +1783,7 @@ function Open-OutlookUsageLease {
         finally { $exclusive.Dispose() }
     }
     else {
-        # The lifecycle gate prevents another parent from racing initial file creation.
+
         $sha = [Security.Cryptography.SHA256]::Create()
         try { $digest = [BitConverter]::ToString($sha.ComputeHash([Text.Encoding]::UTF8.GetBytes($key.ToUpperInvariant()))).Replace('-', '') }
         finally { $sha.Dispose() }
@@ -2249,7 +1798,7 @@ function Open-OutlookUsageLease {
 }
 
 function Enter-OutlookCoordination {
-    # Local complexity exception: the short gate makes process ownership, marker validation and shared-lease acquisition indivisible between cooperating parents.
+
     param([bool]$AllowStart, $Settings)
     $timer = [Diagnostics.Stopwatch]::StartNew()
     Add-Trace -Phase 'coordination-wait'
@@ -2396,7 +1945,7 @@ function Restore-OutlookRunSetting {
 }
 
 function Complete-OutlookSession {
-    # Local complexity exception: owner quiescence, reference leases, normal Quit and uncertain-state preservation share a single cleanup lifetime.
+
     param($Settings)
     Exit-OutlookCoordination
     try { Restore-OutlookRunSetting -Settings $Settings }
@@ -2478,7 +2027,7 @@ function Complete-OutlookSession {
 }
 
 function Invoke-OutlookWorker {
-    # Local size/complexity exception: preserve the working COM acquisition, export, reply and release transaction.
+
     param([string]$Directory, [string]$Token)
     $application = $null
     $session = $null
@@ -2542,8 +2091,7 @@ function Invoke-OutlookWorker {
         }
         Write-AtomicJson -Path $comPending -Value @{ runId = $script:RunId; mode = $request.mode; startedUtc = $script:StartedUtc }
         $comPendingOwned = $true
-        # A terminated COM worker can leave Outlook still working. Never start another
-        # native operation behind an uncertain session marker, even for another output.
+
         $sha = [Security.Cryptography.SHA256]::Create()
         $lifecycleKey = (Join-Path -Path $script:StateRoot -ChildPath 'outlook-lifecycle').ToUpperInvariant()
         try { $digest = [BitConverter]::ToString($sha.ComputeHash([Text.Encoding]::UTF8.GetBytes($lifecycleKey))).Replace('-', '') }
@@ -2722,8 +2270,7 @@ function Invoke-OutlookWorker {
                     }
                 }
                 Add-Trace -Phase 'ical-save'
-                # The stage was vacant when this worker accepted it. Only a worker that
-                # reached the native write may authorise parent cleanup of this pathname.
+
                 $reply.diagnostics.stageOwned = $true
                 $exporter.SaveAsICal($expectedStage)
                 Add-Trace -Phase 'ical-save-complete'
@@ -2770,7 +2317,7 @@ function Invoke-OutlookWorker {
 }
 
 function Invoke-WorkerProcess {
-    # Local size/complexity exception: process, timeout, reply validation and disposal share one ownership lifetime.
+
     param([string]$Mode, $Settings, [string]$StagePath, [int]$TimeoutSeconds, $Lifecycle = $null)
     $directory = New-PrivateDirectory -Path (Join-Path -Path $script:RunDirectory -ChildPath $Mode)
     $token = [Guid]::NewGuid().ToString('D')
@@ -2815,7 +2362,7 @@ function Invoke-WorkerProcess {
         if (-not $started) {
             Stop-Outcalget -Code 'WORKER_START_FAILED' -Message 'The Outlook worker could not be started.' -ExitCode 3
         }
-        # Drain to a null stream: never retain or forward raw host/COM error text.
+
         $stdoutDrain = $process.StandardOutput.BaseStream.CopyToAsync([IO.Stream]::Null)
         $stderrDrain = $process.StandardError.BaseStream.CopyToAsync([IO.Stream]::Null)
         while (-not $process.WaitForExit(100)) {
@@ -2860,7 +2407,7 @@ function Invoke-WorkerProcess {
             }
         }
         $receivedResponse = $true
-        # Only explicitly safe diagnostics are copied; source selection data stays private.
+
         $safe = @{
             mode   = $Mode
             events = @($reply.diagnostics.events)
@@ -3110,7 +2657,7 @@ function New-RunRecord {
             $record.debug = New-DiagnosticReport -Result $result
         }
         catch {
-            # Optional enrichment cannot prevent required minimal operational logging.
+
             $record.debug = @{
                 unavailable = $true
                 code        = 'DEBUG_METADATA_UNAVAILABLE'
@@ -3125,7 +2672,7 @@ function Write-RunRecord {
     $record = New-RunRecord -Completed $Completed
     $text = ConvertTo-Json -InputObject $record -Depth 14 -Compress
     if ([Text.Encoding]::UTF8.GetByteCount($text) -gt 65536) {
-        # Keep a bounded diagnostic trace; never lose the minimal outcome to optional detail.
+
         $record.debug = @{
             unavailable = $true
             code        = 'DEBUG_SIZE_LIMIT'
@@ -3143,8 +2690,7 @@ function Remove-ExpiredRunRecord {
     [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '', Justification = 'Internal operational-log retention; disabled for preview and guarded by active handles.')]
     [CmdletBinding()]
     param([string]$Directory)
-    # The per-run .active handle prevents deletion of any still-running parent's record.
-    # Only this exact tool-owned name format is eligible. Sensitive runs/staging are NEVER pruned here.
+
     $cutoff = [datetime]::UtcNow.AddDays(-14)
     $files = @(Get-ChildItem -LiteralPath $Directory -Filter 'outcalget-*.json' -File |
             Where-Object {
@@ -3169,7 +2715,7 @@ function Remove-ExpiredRunRecord {
             [IO.File]::Delete($file.FullName)
         }
         catch {
-            # Active/inaccessible records are retained; retention is best effort and disclosed.
+
             $script:RetentionDeferred = $true
         }
         finally {
@@ -3211,7 +2757,7 @@ function Initialize-RunRecord {
 }
 
 function Complete-RunRecord {
-    # Completion evidence matters: an incomplete record means UNKNOWN, even if Scheduler shows 0.
+
     if ($script:AtomicCleanupFailed) {
         $script:RunResult.warnings += @{ code = 'JSON_TEMP_RETAINED'; message = 'An owned temporary JSON file could not be removed.' }
     }
@@ -3251,7 +2797,7 @@ function Complete-RunRecord {
             [IO.File]::Delete($script:LogGuardPath)
         }
         catch {
-            # An empty stale guard is harmless: retention later checks its handle, not existence.
+
             $script:RunResult.warnings += @{
                 code    = 'LOG_GUARD_RETAINED'
                 message = 'An empty run-log guard file remains.'
@@ -3286,7 +2832,7 @@ function Read-YesNo {
 }
 
 function Read-CalendarSelection {
-    # Local complexity exception: the three supported source choices stay together in the single interactive setup boundary.
+
     Write-Information -InformationAction Continue -MessageData 'Outlook Classic is ready. Setup uses its currently running Outlook profile.'
     Write-Information -InformationAction Continue -MessageData '1. Outlook folder picker (default)'
     Write-Information -InformationAction Continue -MessageData '2. Shared default Exchange calendar by owner email'
@@ -3326,8 +2872,6 @@ function Read-CalendarSelection {
     }
 }
 
-# Local size/complexity exception: existing transaction/rollback ordering is retained for this scheduler revision.
-# Everything below is the entry point. Functions above can be loaded in isolation by tests.
 if (($Help -and ($Configure -or $Check -or $Version -or $Json -or $Config -or $Worker)) -or
     ($Version -and ($Configure -or $Check -or $Json -or $Config -or $Worker))) {
     'outcalget: ARGUMENTS_INVALID. Use one operation mode; -Json applies only to export/check.'

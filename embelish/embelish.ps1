@@ -1,143 +1,6 @@
 #requires -Version 5.1
 
-<#
-.SYNOPSIS
-    Protects (embelishes) or restores (deembelishes) a folder as encrypted,
-    base64-encoded text shards backed by a split 7-Zip archive.
-
-.DESCRIPTION
-    Embelish packs a source folder into an AES-256 encrypted, header-encrypted,
-    multi-volume 7-Zip archive, then stores each volume as a single-line base64
-    text shard ('<name>.7z.001.txt', '.002.txt', ...). Deembelish reverses the
-    operation: it base64-decodes the shards back into 7-Zip volumes and extracts
-    them into a folder. Compression, authenticated encryption, filename hiding
-    and volume splitting are delegated to the 7-Zip command-line tool; a
-    short-lived staging directory under the system temp folder holds the
-    intermediate volumes and is removed when the operation finishes.
-
-    The encryption password is never accepted on the command line, stored in a
-    file, placed in an environment variable or written to any log. Instead, the
-    7-Zip tool prompts for it directly on the console. Embelish asks for the
-    password twice (enter and verify); deembelish asks once. Because of this the
-    script is interactive by design and is not intended for silent, unattended
-    scheduling unless a separate provisioned credential mechanism is added.
-
-    Diagnostic events are written as JSON Lines to a per-run file under
-    %LOCALAPPDATA%\Embelish\logs (or -LogDirectory). The diagnostic file records
-    operational facts only (operation, sizes, counts, 7-Zip exit code, timing);
-    it never contains the password.
-
-.PARAMETER Mode
-    Operation to perform: 'Embelish' to protect a folder, 'Deembelish' to
-    restore one.
-
-.PARAMETER SourcePath
-    Embelish: the folder to protect.
-    Deembelish: the folder that holds the base64 shards, or any one shard file
-    (a '*.7z.NNN.txt') from the set.
-
-.PARAMETER DestinationPath
-    Embelish: the output folder that will receive the base64 text shards.
-    Deembelish: the output folder that will receive the restored files.
-
-.PARAMETER VolumeSizeMegabytes
-    Size of each shard in megabytes for Embelish. Default 10. Ignored by
-    Deembelish (7-Zip reassembles whatever volume sizes it finds).
-
-.PARAMETER CompressionLevel
-    7-Zip compression level 0-9 for Embelish (0 = store, 9 = ultra/maximum).
-    Default 9 (highest). Ignored by Deembelish.
-
-.PARAMETER SevenZipPath
-    Full path to the 7-Zip executable. When omitted the script searches PATH for
-    7z, 7za, 7zz and 7zr, then the standard Windows install locations.
-
-.PARAMETER ArchiveBaseName
-    Base file name used for the Embelish shards. The produced shards are
-    '<ArchiveBaseName>.7z.001.txt', '.002.txt', and so on. Default 'embelish'.
-    Allowed characters: letters, digits, dot, dash and underscore.
-
-.PARAMETER LogDirectory
-    Directory for the JSON Lines diagnostic file. Defaults to
-    %LOCALAPPDATA%\Embelish\logs.
-
-.PARAMETER Force
-    Overwrite existing output. For Embelish this removes pre-existing shards
-    that share the archive base name. For Deembelish this allows extracting into
-    a non-empty destination folder.
-
-.INPUTS
-    None. This script does not accept pipeline input.
-
-.OUTPUTS
-    [pscustomobject] A single summary record describing the completed (or
-    previewed) operation.
-
-.EXAMPLE
-    PS> .\embelish.ps1 -Mode Embelish -SourcePath C:\data\project -DestinationPath C:\vault\project
-    Prompts for a password and writes encrypted base64 shards
-    (embelish.7z.001.txt, ...) into C:\vault\project.
-
-.EXAMPLE
-    PS> .\embelish.ps1 -Mode Deembelish -SourcePath C:\vault\project -DestinationPath C:\restore\project
-    Reads the base64 shards in C:\vault\project, prompts for the password and
-    restores the folder into C:\restore\project.
-
-.EXAMPLE
-    PS> .\embelish.ps1 -Mode Embelish -SourcePath C:\data\project -DestinationPath C:\vault\project -WhatIf
-    Shows what would happen without creating any archive.
-
-.NOTES
-    Exit codes:
-      0  Operation completed successfully.
-      1  Unexpected or unclassified failure.
-      2  Invalid input or configuration (bad arguments, missing source,
-         existing output without -Force, 7-Zip command-line error).
-      3  Operational, dependency or permission failure (7-Zip not found, 7-Zip
-         fatal error, wrong password, I/O or access error).
-      4  Reserved for a controlled timeout (not used by this script).
-
-    Scheduled / Task Scheduler note:
-      Because 7-Zip prompts for the password on the console, this tool needs an
-      interactive session. A classic Task Scheduler "Program/script" action is:
-        Program/script: C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe
-        Arguments:      -NoLogo -NoProfile -File "C:\ApprovedTools\embelish.ps1" -Mode Embelish -SourcePath "D:\data" -DestinationPath "E:\vault"
-        Start in:       C:\ApprovedTools
-      Do not add -NonInteractive: it would prevent the password prompt. Append
-      -Debug for extra diagnostics. Paths above are illustrative.
-
-    Requirements:
-      Windows PowerShell 5.1 or PowerShell 7+, and a 7-Zip executable on the
-      target machine (set -SevenZipPath if it is not on PATH).
-
-    Verification (revision 1.1.0):
-      Environment used: PowerShell 7.4.6 (Core) on macOS arm64; 7-Zip (7zz)
-        26.03. Windows PowerShell 5.1 and Windows 7z.exe were NOT available in
-        the development sandbox.
-      PASS         - Script parses (PowerShell AST parser, 0 errors).
-      PASS         - PSScriptAnalyzer: 0 errors, 0 warnings (settings: default).
-      PASS         - Embelish/Deembelish round-trip through this script over a
-                     pseudo-terminal (password entered at the 7-Zip prompt);
-                     restored tree is byte-identical to the source, including
-                     nested directories and Unicode names.
-      PASS         - 25 MB source produced three 10 MB base64 '.txt' shards
-                     (single-line ASCII); shards base64-decoded back to volumes
-                     and reassembled. Deembelish also works when -SourcePath
-                     points at a single shard file. No staging left behind.
-      PASS         - Maximum compression (-mx=9, the default) applied: 20 MB of
-                     repeated text collapsed to a single 8 KB shard. Each staged
-                     binary volume is deleted as its shard is written, so the
-                     destination holds only '.txt' shards and no temp files
-                     remain.
-      PASS         - -WhatIf performs no mutation and reports a preview record.
-      PASS         - Exit codes: missing source (2), existing shards without
-                     -Force (2), no shards found (2), wrong password (3),
-                     -Force re-embelish (0).
-      NOT RUN      - Windows PowerShell 5.1 runtime behaviour, Windows console
-                     password prompt and Task Scheduler execution (no Windows
-                     host in the sandbox).
-      NOT APPLICABLE - Code signing (performed by the owner at deployment).
-#>
+# .EXTERNALHELP ../docs/embelish/embelish-help.xml
 
 [CmdletBinding(SupportsShouldProcess = $true, ConfirmImpact = 'Medium', PositionalBinding = $false)]
 param(
@@ -180,7 +43,6 @@ param(
 Set-StrictMode -Version 3.0
 $ErrorActionPreference = 'Stop'
 
-# Run-scoped constants and diagnostic state. No secret is ever stored here.
 $script:ToolName = 'embelish'
 $script:ToolVersion = '1.1.0'
 $script:RunId = [guid]::NewGuid().ToString('N').Substring(0, 12)
@@ -190,10 +52,7 @@ $script:LastSevenZipExit = $null
 $script:OperationResult = $null
 
 function Get-EmbelishTimestamp {
-    <#
-    .SYNOPSIS
-        Returns the current UTC time as an ISO-8601 string.
-    #>
+    # .EXTERNALHELP ../docs/embelish/embelish-help.xml
     [CmdletBinding()]
     [OutputType([string])]
     param()
@@ -202,13 +61,7 @@ function Get-EmbelishTimestamp {
 }
 
 function Write-DiagnosticEvent {
-    <#
-    .SYNOPSIS
-        Appends one sanitised JSON Lines diagnostic record to the run log.
-    .DESCRIPTION
-        Logging failures never abort the business operation; they degrade to a
-        single warning. Callers must pass only non-secret fields in -Data.
-    #>
+    # .EXTERNALHELP ../docs/embelish/embelish-help.xml
     [CmdletBinding()]
     param(
         [Parameter(Mandatory = $true)]
@@ -252,10 +105,7 @@ function Write-DiagnosticEvent {
 }
 
 function Initialize-DiagnosticContext {
-    <#
-    .SYNOPSIS
-        Resolves the log directory, opens a per-run log file and prunes old logs.
-    #>
+    # .EXTERNALHELP ../docs/embelish/embelish-help.xml
     [CmdletBinding()]
     param(
         [Parameter()]
@@ -292,10 +142,7 @@ function Initialize-DiagnosticContext {
 }
 
 function Resolve-SevenZipPath {
-    <#
-    .SYNOPSIS
-        Locates the 7-Zip executable, honouring an explicit path first.
-    #>
+    # .EXTERNALHELP ../docs/embelish/embelish-help.xml
     [CmdletBinding()]
     [OutputType([string])]
     param(
@@ -330,18 +177,7 @@ function Resolve-SevenZipPath {
 }
 
 function Invoke-SevenZipCommand {
-    <#
-    .SYNOPSIS
-        Runs 7-Zip so it inherits the console, recording its exit code in
-        $script:LastSevenZipExit.
-    .DESCRIPTION
-        7-Zip writes its password prompt to stdout and only prompts when stdout
-        is a terminal. Any pipe, redirection or output capture here would hide
-        the prompt and deadlock, so 7-Zip must inherit this script's console and
-        its progress output necessarily shares that console. The exit code is
-        returned through a script variable rather than the pipeline to avoid
-        capturing (and thereby redirecting) that output.
-    #>
+    # .EXTERNALHELP ../docs/embelish/embelish-help.xml
     [CmdletBinding()]
     param(
         [Parameter(Mandatory = $true)]
@@ -351,8 +187,6 @@ function Invoke-SevenZipCommand {
         [string[]] $ArgumentList
     )
 
-    # Prevent PowerShell 7.3+ from turning a non-zero native exit into a
-    # terminating error before we can classify the 7-Zip exit code.
     $ErrorActionPreference = 'Continue'
     if (Test-Path -Path 'variable:PSNativeCommandUseErrorActionPreference') {
         Set-Variable -Name 'PSNativeCommandUseErrorActionPreference' -Value $false -Scope Local
@@ -363,10 +197,7 @@ function Invoke-SevenZipCommand {
 }
 
 function Resolve-SevenZipOutcome {
-    <#
-    .SYNOPSIS
-        Classifies a 7-Zip exit code into a structured outcome.
-    #>
+    # .EXTERNALHELP ../docs/embelish/embelish-help.xml
     [CmdletBinding()]
     [OutputType([pscustomobject])]
     param(
@@ -394,10 +225,7 @@ function Resolve-SevenZipOutcome {
 }
 
 function Assert-SevenZipOutcome {
-    <#
-    .SYNOPSIS
-        Throws a typed, categorised error when 7-Zip did not succeed.
-    #>
+    # .EXTERNALHELP ../docs/embelish/embelish-help.xml
     [CmdletBinding()]
     param(
         [Parameter(Mandatory = $true)]
@@ -419,10 +247,7 @@ function Assert-SevenZipOutcome {
 }
 
 function New-CleanOutputDirectory {
-    <#
-    .SYNOPSIS
-        Ensures a destination directory exists, applying -Force overwrite rules.
-    #>
+    # .EXTERNALHELP ../docs/embelish/embelish-help.xml
     [CmdletBinding(SupportsShouldProcess = $true)]
     [OutputType([string])]
     param(
@@ -433,8 +258,6 @@ function New-CleanOutputDirectory {
         [switch] $AllowExisting
     )
 
-    # Resolve to a full path without requiring existence so -WhatIf (which skips
-    # directory creation below) still returns a usable path.
     $fullPath = $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($Path)
 
     if (Test-Path -LiteralPath $fullPath -PathType Leaf) {
@@ -454,10 +277,7 @@ function New-CleanOutputDirectory {
 }
 
 function ConvertTo-Base64Shard {
-    <#
-    .SYNOPSIS
-        Writes a binary 7-Zip volume as a single-line base64 text shard.
-    #>
+    # .EXTERNALHELP ../docs/embelish/embelish-help.xml
     [CmdletBinding()]
     param(
         [Parameter(Mandatory = $true)]
@@ -473,10 +293,7 @@ function ConvertTo-Base64Shard {
 }
 
 function ConvertFrom-Base64Shard {
-    <#
-    .SYNOPSIS
-        Restores a binary 7-Zip volume from a base64 text shard.
-    #>
+    # .EXTERNALHELP ../docs/embelish/embelish-help.xml
     [CmdletBinding()]
     param(
         [Parameter(Mandatory = $true)]
@@ -492,11 +309,7 @@ function ConvertFrom-Base64Shard {
 }
 
 function Resolve-ShardManifest {
-    <#
-    .SYNOPSIS
-        Resolves the ordered base64 shard set ('<base>.7z.NNN.txt') from a file
-        or folder path and returns the shards with their base archive name.
-    #>
+    # .EXTERNALHELP ../docs/embelish/embelish-help.xml
     [CmdletBinding()]
     [OutputType([pscustomobject])]
     param(
@@ -541,11 +354,7 @@ function Resolve-ShardManifest {
 }
 
 function Invoke-EmbelishOperation {
-    <#
-    .SYNOPSIS
-        Packs a folder into an encrypted, split 7-Zip archive, storing the
-        summary in $script:OperationResult.
-    #>
+    # .EXTERNALHELP ../docs/embelish/embelish-help.xml
     [CmdletBinding(SupportsShouldProcess = $true)]
     param(
         [Parameter(Mandatory = $true)]
@@ -623,7 +432,7 @@ function Invoke-EmbelishOperation {
         foreach ($volume in $volumes) {
             $shardPath = [System.IO.Path]::Combine($destination, ($volume.Name + '.txt'))
             ConvertTo-Base64Shard -VolumePath $volume.FullName -ShardPath $shardPath
-            # Remove each intermediary binary volume as soon as its shard exists.
+
             Remove-Item -LiteralPath $volume.FullName -Force
         }
         $shardCount = $volumes.Count
@@ -647,11 +456,7 @@ function Invoke-EmbelishOperation {
 }
 
 function Invoke-DeembelishOperation {
-    <#
-    .SYNOPSIS
-        Extracts an encrypted, split 7-Zip archive back into a folder, storing
-        the summary in $script:OperationResult.
-    #>
+    # .EXTERNALHELP ../docs/embelish/embelish-help.xml
     [CmdletBinding(SupportsShouldProcess = $true)]
     param(
         [Parameter(Mandatory = $true)]
@@ -695,9 +500,6 @@ function Invoke-DeembelishOperation {
         }
         $firstVolume = [System.IO.Path]::Combine($staging, ($manifest.BaseName + '.001'))
 
-        # No -p: with the password omitted, 7-Zip prompts "Enter password:" on the
-        # console (passing -p with no value would instead use an empty password).
-        # -aoa overwrites existing files (allowed only after the -Force checks above).
         $arguments = @('x', '-aoa', ("-o{0}" -f $destination), '--', $firstVolume)
 
         Write-Verbose "Running 7-Zip; enter the archive password when prompted."
@@ -730,11 +532,7 @@ function Invoke-DeembelishOperation {
 }
 
 function ConvertTo-ResultRecord {
-    <#
-    .SYNOPSIS
-        Stamps shared fields onto an operation record and returns it as the
-        single summary object emitted to the success stream.
-    #>
+    # .EXTERNALHELP ../docs/embelish/embelish-help.xml
     [CmdletBinding()]
     [OutputType([pscustomobject])]
     param(
@@ -748,10 +546,7 @@ function ConvertTo-ResultRecord {
 }
 
 function Resolve-ExitCodeFromError {
-    <#
-    .SYNOPSIS
-        Maps a terminating error to a documented process exit code.
-    #>
+    # .EXTERNALHELP ../docs/embelish/embelish-help.xml
     [CmdletBinding()]
     [OutputType([int])]
     param(
@@ -772,11 +567,9 @@ function Resolve-ExitCodeFromError {
     return 1
 }
 
-# --- Entry point (the only place that owns 'exit') ---
-
 $script:DebugEnabled = [bool]$PSBoundParameters['Debug']
 if ($script:DebugEnabled) {
-    # Keep -Debug non-prompting (5.1 would otherwise set Inquire).
+
     $DebugPreference = 'Continue'
 }
 
@@ -810,7 +603,7 @@ try {
 } catch {
     $code = Resolve-ExitCodeFromError -ErrorRecord $_
     Write-DiagnosticEvent -Stage 'run.error' -Level 'error' -Data @{ exitCode = $code; message = $_.Exception.Message }
-    # Report non-terminating so the mapped exit code (not the default 1) is used.
+
     $ErrorActionPreference = 'Continue'
     Write-Error $_
     exit $code

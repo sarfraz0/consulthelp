@@ -1,5 +1,3 @@
-# Place this file beside outcalget.ps1 in your Git working tree.
-# Adjust only this filename if outcalget.ps1 writes a different file.
 $calendarFile = 'calendar.ics'
 $ErrorActionPreference = 'Stop'
 
