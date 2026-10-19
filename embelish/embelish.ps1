@@ -44,7 +44,7 @@ Set-StrictMode -Version 3.0
 $ErrorActionPreference = 'Stop'
 
 $script:ToolName = 'embelish'
-$script:ToolVersion = '1.1.0'
+$script:ToolVersion = '1.1.1'
 $script:RunId = [guid]::NewGuid().ToString('N').Substring(0, 12)
 $script:LogPath = $null
 $script:DebugEnabled = $false
@@ -123,6 +123,7 @@ function Initialize-DiagnosticContext {
     }
 
     try {
+        $directory = $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($directory)
         if (-not (Test-Path -LiteralPath $directory)) {
             New-Item -ItemType Directory -Path $directory -Force | Out-Null
         }

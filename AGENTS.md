@@ -25,7 +25,7 @@ These instructions apply to Codex, GitHub Copilot and Claude Code. Tool entry po
 
 - Use `rg` for searches. Keep temporary captures, fixtures and scripts in an untracked scratch location outside the implementation directories.
 - Run proportionate parser, compatibility and behavioral checks available in the environment. Compare executable tokens when moving documentation out of scripts.
-- Do not execute scripts that touch real Outlook/calendar data or run `update-calendar.ps1` as a development check; use isolated synthetic fixtures for behavior testing.
+- Do not execute scripts that touch real Outlook/calendar data or publish real calendar data through `update-calendar.ps1` as a development check; use copied scripts with synthetic exporter boundaries and isolated local-only repositories for behavior testing.
 - Do not run real archive/password workflows or Sendshards Push as documentation checks. Native help can be read without business work; preserve interactive password handling and approved Git/security controls.
 - Report executed checks, tools/versions and results separately from historical evidence. Record missing Windows, Outlook, Exchange, Task Scheduler or endpoint checks as `NOT RUN`.
 - Do not invent API members, claim target acceptance from mocks, or present stale verification as current. Keep `docs/<tool>/verification.md` accurate.

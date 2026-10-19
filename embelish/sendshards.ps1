@@ -35,6 +35,7 @@ if ($debugEnabled) {
 }
 
 function Stop-Transfer {
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '', Justification = 'Raises a terminating error only; no external state is changed.')]
     [CmdletBinding()]
     param([string] $Id, [string] $Message, [int] $Code = 3)
     $exception = [System.InvalidOperationException]::new($Message)
@@ -180,6 +181,7 @@ function Receive-NativeStream {
 }
 
 function Stop-OwnedProcess {
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '', Justification = 'Mandatory cleanup of the exact child process owned by an authorized Git operation; cancellation must not prompt or skip cleanup.')]
     [CmdletBinding()]
     param([System.Diagnostics.Process] $Process, [string] $TaskKillPath)
     if ($Process.HasExited) {
@@ -195,8 +197,8 @@ function Stop-OwnedProcess {
         $killer.StartInfo.RedirectStandardOutput = $true
         $killer.StartInfo.RedirectStandardError = $true
         $null = $killer.Start()
-        $outTask = $killer.StandardOutput.ReadToEndAsync()
-        $errorTask = $killer.StandardError.ReadToEndAsync()
+        $null = $killer.StandardOutput.ReadToEndAsync()
+        $null = $killer.StandardError.ReadToEndAsync()
         if (-not $killer.WaitForExit(5000)) {
             $killer.Kill()
             Write-Warning ('Owned-process cleanup exceeded its wait limit. Inspect Git PID: ' + $Process.Id)
@@ -216,7 +218,7 @@ function Invoke-TransferGit {
     [OutputType([pscustomobject])]
     param([object] $Context, [string[]] $Arguments, [int[]] $AcceptedCodes = @(0))
     $remaining = Get-RemainingTime -Context $Context
-    $limit = [math]::Min($Context.GitTimeoutSeconds, $remaining)
+    $limit = [math]::Min([double]$Context.GitTimeoutSeconds, $remaining)
     $argumentsList = @('--no-optional-locks', '--literal-pathspecs', '-C', $Context.Root) + $Arguments
     $quoted = @($argumentsList | ForEach-Object {
             ConvertTo-NativeArgument -Value $_
@@ -304,7 +306,7 @@ function Get-GitText {
 
 function Write-TransferEvent {
     [CmdletBinding()]
-    param([object] $Context, [string] $Event, [hashtable] $Fields = @{}, [switch] $DebugOnly)
+    param([object] $Context, [Alias('Event')][string] $EventName, [hashtable] $Fields = @{}, [switch] $DebugOnly)
     if ($null -eq $Context.LogPath) {
         return
     }
@@ -314,9 +316,9 @@ function Write-TransferEvent {
     $entry = [ordered]@{
         utc = [datetime]::UtcNow.ToString('o')
         tool = 'sendshards'
-        version = '1.0.0'
+        version = '1.0.1'
         runId = $Context.RunId
-        event = $Event
+        event = $EventName
     }
     $allowed = @('command', 'nativeCode', 'durationMs', 'fileCount', 'pendingCount', 'verifiedCount',
         'item', 'waitSeconds', 'errorId', 'errorType', 'line', 'status', 'scriptHash',
@@ -346,7 +348,7 @@ function Initialize-TransferLog {
         $entry = [ordered]@{
             utc = [datetime]::UtcNow.ToString('o')
             tool = 'sendshards'
-            version = '1.0.0'
+            version = '1.0.1'
             runId = $Context.RunId
             event = 'Start'
             status = 'Running'
@@ -420,17 +422,45 @@ function Read-TransferJson {
         $quotas.MaxArrayLength = 10000
         $reader = [System.Runtime.Serialization.Json.JsonReaderWriterFactory]::CreateJsonReader($bytes, $quotas)
         $objects = [System.Collections.Generic.Stack[object]]::new()
+        $rootStrings = [System.Collections.Generic.Dictionary[string, string]]::new([System.StringComparer]::Ordinal)
+        $stringName = $null
         while ($reader.Read()) {
             Test-JsonElement -Reader $reader -Objects $objects
+            if ($reader.NodeType -eq [System.Xml.XmlNodeType]::Element -and $reader.Depth -eq 1) {
+                $stringName = $null
+                if ($reader.GetAttribute('type') -eq 'string') {
+                    $stringName = Get-JsonPropertyName -Reader $reader
+                    $rootStrings.Add($stringName, '')
+                }
+            } elseif ($reader.NodeType -eq [System.Xml.XmlNodeType]::Text -and $reader.Depth -eq 2 -and $null -ne $stringName) {
+                $rootStrings[$stringName] += $reader.Value
+            }
         }
         $text = [System.Text.UTF8Encoding]::new($false, $true).GetString($bytes).TrimStart([char]0xfeff)
-        return $text | ConvertFrom-Json -ErrorAction Stop
+        $document = $text | ConvertFrom-Json -ErrorAction Stop
+        if ($document -is [pscustomobject]) {
+            foreach ($name in $rootStrings.Keys) {
+                $document.$name = $rootStrings[$name]
+            }
+        }
+        return $document
     } finally {
         if ($null -ne $reader) {
             $reader.Dispose()
         }
         $stream.Dispose()
     }
+}
+
+function Get-JsonPropertyName {
+    [CmdletBinding()]
+    [OutputType([string])]
+    param([System.Xml.XmlDictionaryReader] $Reader)
+    $name = $Reader.GetAttribute('item')
+    if ($null -eq $name) {
+        $name = $Reader.LocalName
+    }
+    return $name
 }
 
 function Test-JsonElement {
@@ -445,8 +475,11 @@ function Test-JsonElement {
     if ($Reader.NodeType -ne [System.Xml.XmlNodeType]::Element) {
         return
     }
+    if ($null -ne $Reader.GetAttribute('__type')) {
+        Stop-Transfer -Id 'JsonSchema' -Message 'JSON type metadata is not allowed.' -Code 2
+    }
     if ($Objects.Count -gt 0 -and $Reader.Depth -eq $Objects.Peek().Depth + 1) {
-        if (-not $Objects.Peek().Names.Add($Reader.LocalName)) {
+        if (-not $Objects.Peek().Names.Add((Get-JsonPropertyName -Reader $Reader))) {
             Stop-Transfer -Id 'DuplicateJsonKey' -Message 'Duplicate JSON keys are not allowed.' -Code 2
         }
     }
@@ -516,7 +549,7 @@ function Write-AtomicJson {
             if ($NewOnly) {
                 Stop-Transfer -Id 'PlanExists' -Message 'The plan already exists; choose a new filename.' -Code 2
             }
-            [System.IO.File]::Replace($temporary, $Path, $null)
+            [System.IO.File]::Replace($temporary, $Path, [System.Management.Automation.Language.NullString]::Value)
         } else {
             [System.IO.File]::Move($temporary, $Path)
         }
@@ -532,6 +565,7 @@ function Write-AtomicJson {
 }
 
 function New-TransferContext {
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '', Justification = 'Constructs in-memory context and checks installed prerequisites; no business state is changed.')]
     [CmdletBinding()]
     [OutputType([pscustomobject])]
     param([string] $WorkingPath, [string] $ExecutablePath, [int] $Timeout, [bool] $EnableDebug)
@@ -592,6 +626,7 @@ function Assert-HostPrerequisite {
 }
 
 function Set-RepositoryContext {
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '', Justification = 'Reads local Git metadata and updates only the in-memory context; required during preview preflight.')]
     [CmdletBinding()]
     param([object] $Context)
     $Context.GitVersion = Get-GitText -Context $Context -Arguments @('--version')
@@ -742,7 +777,7 @@ function Get-TreeBlob {
     return $Matches[2]
 }
 
-function Get-SourceRecords {
+function Get-SourceRecord {
     [CmdletBinding()]
     [OutputType([pscustomobject])]
     param([object] $Context, [string] $Directory)
@@ -791,11 +826,11 @@ function Get-SourceRecords {
             Blob = $blob
         }
     }
-    Assert-ShardGroups -Context $Context -Records $records
+    Assert-ShardGroup -Context $Context -Records $records
     return $records | Sort-Object -Property Base, Index
 }
 
-function Assert-ShardGroups {
+function Assert-ShardGroup {
     [CmdletBinding()]
     param([object] $Context, [object[]] $Records)
     $groups = @($Records | Group-Object -Property Base)
@@ -837,6 +872,7 @@ function Assert-SourceManifest {
     Assert-IntegerValue -Value $document.Version -Minimum 1 -Maximum 1
     Assert-IntegerValue -Value $document.ShardCount -Minimum 1 -Maximum 10000
     Assert-TextPattern -Value $document.Generation -Pattern '^[0-9a-f]{32}$'
+    Assert-TextPattern -Value $document.Archive -Pattern '\A[^\x00/\\]+\z'
     if ($document.Archive -cne $Record.Base -or $document.Shards -isnot [array]) {
         Stop-Transfer -Id 'ManifestSchema' -Message 'The checksum manifest does not describe this set.' -Code 2
     }
@@ -858,6 +894,8 @@ function Assert-ManifestMatch {
     [CmdletBinding()]
     param([object] $Entry, [object] $Record)
     $name = [System.IO.Path]::GetFileName($Record.Path)
+    Assert-TextPattern -Value $Entry.Name -Pattern '\A[^\x00/\\]+\z'
+    Assert-TextPattern -Value $Entry.Hash -Pattern '^[0-9a-f]{64}$'
     if ($Entry.Index -ne $Record.Index -or $Entry.Name -cne $name) {
         Stop-Transfer -Id 'ManifestSequence' -Message 'A manifest entry does not match shard numbering.' -Code 2
     }
@@ -867,6 +905,7 @@ function Assert-ManifestMatch {
 }
 
 function New-TransferPlan {
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '', Justification = 'Builds an in-memory plan using local read-only checks; publication is guarded by the script ShouldProcess boundary.')]
     [CmdletBinding()]
     [OutputType([pscustomobject])]
     param([object] $Context, [string] $Directory, [string] $RemoteName, [int] $Interval)
@@ -875,7 +914,7 @@ function New-TransferPlan {
         Stop-Transfer -Id 'ForeignIndex' -Message 'Start planning with an empty Git index.'
     }
     $base = Get-GitText -Context $Context -Arguments @('rev-parse', '--verify', 'HEAD')
-    $records = @(Get-SourceRecords -Context $Context -Directory $Directory)
+    $records = @(Get-SourceRecord -Context $Context -Directory $Directory)
     $files = @()
     $pending = 0
     foreach ($record in $records) {
@@ -1001,15 +1040,15 @@ function Assert-TransferPlan {
     }
     $root = Resolve-LocalPath -Value $Document.Repository
     $source = Resolve-LocalPath -Value $Document.SourceFolder
-    Assert-CanonicalPlanPaths -Document $Document -Root $root -Source $source
+    Assert-CanonicalPlanPath -Document $Document -Root $root -Source $source
     if (-not (Test-PathWithin -Path $source -Directory $root)) {
         Stop-Transfer -Id 'PlanContainment' -Message 'The plan source must be inside its repository.' -Code 2
     }
     $relative = $source.Substring($root.TrimEnd([char[]]'\/').Length).TrimStart([char[]]'\/').Replace('\', '/')
-    Assert-PlanRecords -Document $Document -SourceRelative $relative
+    Assert-PlanRecord -Document $Document -SourceRelative $relative
 }
 
-function Assert-CanonicalPlanPaths {
+function Assert-CanonicalPlanPath {
     [CmdletBinding()]
     param([object] $Document, [string] $Root, [string] $Source)
     if (-not $Root.Equals($Document.Repository, [System.StringComparison]::OrdinalIgnoreCase)) {
@@ -1020,7 +1059,7 @@ function Assert-CanonicalPlanPaths {
     }
 }
 
-function Assert-PlanRecords {
+function Assert-PlanRecord {
     [CmdletBinding()]
     param([object] $Document, [string] $SourceRelative)
     $names = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
@@ -1061,7 +1100,7 @@ function Assert-PlanRepository {
 function Assert-SourceSnapshot {
     [CmdletBinding()]
     param([object] $Context, [object] $Document)
-    $current = @(Get-SourceRecords -Context $Context -Directory $Document.SourceFolder)
+    $current = @(Get-SourceRecord -Context $Context -Directory $Document.SourceFolder)
     if ($current.Count -ne $Document.Files.Count) {
         Stop-Transfer -Id 'ChangedSet' -Message 'The source shard/manifest inventory differs from the plan.'
     }
@@ -1106,7 +1145,7 @@ function Assert-ItemCommit {
 
 function Get-TransferChain {
     [CmdletBinding()]
-    [OutputType([string[]])]
+    [OutputType([object[]])]
     param([object] $Context, [object] $Document)
     $head = Get-GitText -Context $Context -Arguments @('rev-parse', '--verify', 'HEAD')
     $null = Invoke-TransferGit -Context $Context -Arguments @('merge-base', '--is-ancestor', $Document.BaseCommit, $head)
@@ -1182,6 +1221,9 @@ function Read-TransferState {
     Assert-ObjectSchema -Value $state -Keys @('SchemaVersion', 'PlanId', 'PlanHash', 'StartedUtc', 'LastAttemptUtc', 'LastSuccessUtc', 'VerifiedCount', 'VerifiedCommit', 'Status')
     Assert-IntegerValue -Value $state.SchemaVersion -Minimum 1 -Maximum 1
     Assert-IntegerValue -Value $state.VerifiedCount -Minimum 0 -Maximum $Document.PendingCount
+    Assert-TextPattern -Value $state.PlanId -Pattern '^[0-9a-f]{32}$'
+    Assert-TextPattern -Value $state.PlanHash -Pattern '^[0-9a-f]{64}$'
+    Assert-TextPattern -Value $state.Status -Pattern '\A(Running|Paused|Complete)\z'
     Assert-TextPattern -Value $state.VerifiedCommit -Pattern '^([0-9a-f]{40}|[0-9a-f]{64})$'
     if ($state.PlanId -cne $Document.PlanId -or $state.PlanHash -cne $PlanHash) {
         Stop-Transfer -Id 'ChangedPlan' -Message 'The plan bytes differ from the checkpoint; do not edit an active plan.' -Code 2
@@ -1202,6 +1244,7 @@ function Read-TransferState {
 }
 
 function Set-TransferDeadline {
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '', Justification = 'Updates only in-memory deadline values from the original persisted budget.')]
     [CmdletBinding()]
     param([object] $Context, [object] $State)
     $start = ConvertFrom-UtcStamp -Value $State.StartedUtc
@@ -1294,6 +1337,7 @@ function Wait-TransferInterval {
 }
 
 function New-ItemCommit {
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '', Justification = 'Internal commit adapter reached only inside the script ShouldProcess-approved Push transaction; hooks and index checks remain active.')]
     [CmdletBinding()]
     [OutputType([string])]
     param([object] $Context, [object] $Document, [object] $Record, [string] $Parent)
@@ -1366,6 +1410,9 @@ function Invoke-TransferPush {
             $_.Pending
         })
 
+    if ($commits.Count -eq $pending.Count) {
+        Assert-TransferIndex -Context $Context -Record $null
+    }
     if (-not [System.IO.File]::Exists($statePath)) {
         Write-AtomicJson -Path $statePath -Document $state -NewOnly
     }
@@ -1386,6 +1433,7 @@ function Invoke-TransferPush {
         Send-ItemCommit -Context $Context -Document $Document -State $state -Commit $commit -Url $url -StatePath $statePath
         $verified = $state.VerifiedCount
     }
+    Assert-TransferIndex -Context $Context -Record $null
     Write-TransferEvent -Context $Context -Event 'Complete' -Fields @{
         verifiedCount = $verified
         status = 'Complete'

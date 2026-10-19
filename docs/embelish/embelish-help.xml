@@ -27,6 +27,7 @@ scheduling unless a separate provisioned credential mechanism is added.</maml:pa
 %LOCALAPPDATA%\Embelish\logs (or -LogDirectory). The diagnostic file records
 operational facts only (operation, sizes, counts, 7-Zip exit code, timing);
 it never contains the password.</maml:para>
+      <maml:para>Revision 1.1.1 resolves relative log paths from the caller’s PowerShell filesystem location. The script may be installed under scripts/ or in another directory; relative source/destination/explicit executable paths also use the caller’s location. XML help and documentation are optional for execution.</maml:para>
     </maml:description>
     <command:syntax>
       <command:syntaxItem>
@@ -155,7 +156,7 @@ Allowed characters: letters, digits, dot, dash and underscore.</maml:para>
         <maml:name>LogDirectory</maml:name>
         <maml:description>
           <maml:para>Directory for the JSON Lines diagnostic file. Defaults to
-%LOCALAPPDATA%\Embelish\logs.</maml:para>
+%LOCALAPPDATA%\Embelish\logs. Relative values resolve from the caller’s current PowerShell filesystem location.</maml:para>
         </maml:description>
         <command:parameterValue required="true">String</command:parameterValue>
         <dev:type>

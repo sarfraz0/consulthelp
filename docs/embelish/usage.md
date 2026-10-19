@@ -44,7 +44,7 @@ Allowed characters: letters, digits, dot, dash and underscore.
 ### -LogDirectory
 
 Directory for the JSON Lines diagnostic file. Defaults to
-%LOCALAPPDATA%\Embelish\logs.
+%LOCALAPPDATA%\Embelish\logs. Relative values resolve from the caller’s current PowerShell filesystem location.
 
 ### -Force
 

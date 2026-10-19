@@ -2,6 +2,10 @@
 
 [Documentation index](README.md)
 
+## Current audit status
+
+Version 1.0.1 fixes the six findings in the [18 October audit](audit-2026-10-18.md): initial planning, checkpoint replacement, escaped JSON keys, manifest types, no-work index checks and timestamp round trips. See [current verification](verification.md#fixes-and-relocation-verification-19-october-2026) for synthetic execution evidence and remaining Windows gaps. After any checkpoint failure, still inspect actual Git/remote state: a successful push can precede a failed state write.
+
 ## Extracted operational notes
 
 WhatIf/declined confirmation: read-only local checks, no network, logs, locks,
@@ -32,4 +36,4 @@ Resume uses the same plan and original persisted time budget. Inspect native Git
 
 Embelish emits no checksum manifest in its current revision. Sendshards accepts those legacy sets with a warning; it does not decrypt or prove archive authenticity. Exact Git blob verification checks the transferred bytes and rejects byte-changing filters, including LFS pointers. Hooks, signing, credential helpers, TLS, proxy and endpoint controls remain active.
 
-This extraction changes documentation and native help only. It does not run a transfer, certify the 60-minute budget on an actual network, change any repository/remote settings or resolve existing analyzer findings.
+The script location and caller’s directory can differ from the source repository. Source/plan arguments select the data, and persisted plans retain canonical absolute paths. Moving the script does not move source files or make an edited active plan valid. Native help XML remains optional. Windows path, process-tree, signing/credential and scheduler acceptance still require target execution.

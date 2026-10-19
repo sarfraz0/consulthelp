@@ -17,7 +17,7 @@ Read the root `AGENTS.md`, `docs/Powershell guidelines.md`, and `docs/outcalget/
 - Scope normally includes `outcalget.ps1`, `update-calendar.ps1` and `docs/outcalget/`. Shared guidance changes require task scope that includes them.
 - `outcalget.ps1` uses `../docs/outcalget/outcalget-help.xml` for native help. Preserve relative help resolution, `Get-Help -Full`, `-?`, `-Help` and `-Version`; keep the XML and Markdown consistent.
 - Implementation rationale and existing complexity/length exceptions live in `docs/outcalget/implementation-notes.md`, keyed by function. Historical original line numbers do not describe the current source.
-- `update-calendar.ps1` deletes, exports, stages, commits and pushes calendar data. Do not execute it in development. Its delete-before-export limitation is documented in `docs/outcalget/update-calendar.md`; fixing it requires an implementation task.
+- `update-calendar.ps1` exports, stages, commits and pushes the actual published output returned by outcalget. Never execute it against real calendar data during development; behavior checks must use copied scripts, synthetic exporter results and filesystem-only remotes. Preserve prior output on export failure, caller location, literal single-file staging and native hooks/push controls. Its adjacent exporter dependency can be overridden with `-ExporterPath`; see `docs/outcalget/update-calendar.md`.
 
 ## Checks
 

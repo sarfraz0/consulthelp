@@ -8,7 +8,7 @@
       </maml:description>
     </command:details>
     <maml:description>
-      <maml:para>Revision 1.0.0. One self-contained Windows PowerShell 5.1 script. Requires
+      <maml:para>Revision 1.0.1. One self-contained Windows PowerShell 5.1 script. Requires
 installed Git for Windows 2.30 or newer, FullLanguage, and pre-provisioned credentials.
 Run as the current user. No installation, elevation, policy changes are performed. Git hooks, signing,
 credential helpers, TLS checks, and repository filters remain active.</maml:para>
@@ -65,6 +65,7 @@ document, 2 MiB captured output per native stream, 100 log files retained.
 Child executables: installed git.exe and its configured approved helpers/hooks;
 Windows taskkill.exe only for the process tree owned by this invocation on
 timeout/cancellation. No network contact occurs until an authorized Push.</maml:para>
+      <maml:para>The script may be installed under scripts/, in a repository root or in a separate tools directory and invoked from another directory. Relative CLI paths resolve from the caller’s PowerShell filesystem location. Source data stays in its Git worktree and plan/state/logs outside it. No XML or documentation is required to execute.</maml:para>
     </maml:description>
     <command:syntax>
       <command:syntaxItem>
@@ -258,6 +259,8 @@ noninteractive PowerShell does not prevent every external application dialog.</m
     Those runtimes and the managed target environment are unavailable here.</maml:para>
         <maml:para>CURRENT DOCUMENTATION CLARIFICATIONS
 Use the same plan and persisted original budget to resume. Inspect Git locks and staged/local/remote state after interruption rather than deleting locks during live work or blindly retrying an uncertain push. Current Embelish shards contain no checksum manifest and are accepted with a legacy warning. No archive decryption or authenticity proof is performed. See docs/sendshards/operations.md and verification.md for current documentation and analyzer findings.</maml:para>
+        <maml:para>HISTORICAL AUDIT, 18 OCTOBER 2026
+Version 1.0.0 had six findings (F1–F6); all are corrected in 1.0.1. Current verification on Linux/PowerShell 7.6.6: 68 functional scenarios pass using production functions and initial null deadlines, without a writer prototype. Saved-plan/checkpoint round trips, actual paced local transfer, completed/staged resume, malformed JSON/manifest/state types and root/scripts/external relocation are covered. All four scripts have zero parser/analyzer findings with the 5.1 compatibility profile, with narrowly documented helper exceptions. Windows runtime, owned process-tree cleanup, durability/production credentials/Scheduler and endpoint acceptance remain NOT RUN. See docs/sendshards/verification.md and the historical audit for details.</maml:para>
       </maml:alert>
     </maml:alertSet>
     <command:examples>

@@ -63,6 +63,8 @@ Office automation and new Outlook are unsupported.
 
 ## Deployment and native help
 
+The exporter may live under `scripts/` or any tools directory and run from another current directory. Saved output paths and user state do not depend on the script directory; its worker relaunches the same absolute script path. Explicit `-Config` follows the exporter’s existing absolute-local-path requirement. Windows/Outlook acceptance remains separate from the relocation smoke checks.
+
 All executable export logic remains in one standalone script. Deploy `outcalget.ps1` alone with its declared Windows/Outlook dependencies and runtime configuration; neither the XML nor Markdown is required for export or `-Version`. XML is optional and supplies detailed native help. Without it, `Get-Help`, `-?` and the existing `-Help` switch fall back to generated syntax. To retain detailed help, also deploy matching documentation with the repository layout (`outcalget/` beside `docs/`), so the native `.EXTERNALHELP` directive resolves `../docs/outcalget/outcalget-help.xml`.
 
 Markdown is the editable documentation; update the corresponding external XML help whenever public help changes. The XML contains the extracted synopsis, description, parameters, examples, inputs, outputs, notes and links. It is documentation, not executable code or a runtime module.

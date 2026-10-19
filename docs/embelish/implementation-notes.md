@@ -2,7 +2,7 @@
 
 [Documentation index](README.md)
 
-These notes preserve function help and explanatory comments removed from the script. Original source line numbers refer to the pre-extraction file. All executable tokens and string literals remain unchanged.
+These notes preserve function help and explanatory comments removed from the script. Original source line numbers refer to the pre-extraction file. The extraction preserved executable tokens and strings. Revision 1.1.1 additionally resolves an explicit diagnostic directory through PowerShell’s filesystem path resolver before passing it to .NET file I/O; this fixes relative log paths when PowerShell and process working directories differ.
 
 ## Script initialization
 

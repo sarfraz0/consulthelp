@@ -2,7 +2,9 @@
 
 Plans and resumes a paced transfer of archive shards to an approved Git remote.
 
-Implementation: [`sendshards.ps1`](../../embelish/sendshards.ps1), version 1.0.0.
+Implementation: [`sendshards.ps1`](../../embelish/sendshards.ps1), version 1.0.1.
+
+Version 1.0.1 fixes all six findings from the [18 October audit](audit-2026-10-18.md). The [19 October verification](verification.md#fixes-and-relocation-verification-19-october-2026) records passing synthetic regressions and relocation checks. Target Windows execution remains unverified.
 
 ## Documentation
 
@@ -10,11 +12,12 @@ Implementation: [`sendshards.ps1`](../../embelish/sendshards.ps1), version 1.0.0
 - [Operation, scheduling and existing limits](operations.md)
 - [Function documentation and implementation rationale](implementation-notes.md)
 - [Historical verification and current extraction](verification.md)
+- [18 October verification and gap audit](audit-2026-10-18.md)
 - [Native PowerShell help](sendshards-help.xml)
 
 ## Behavior and prerequisites
 
-Revision 1.0.0. One self-contained Windows PowerShell 5.1 script. Requires
+Revision 1.0.1. One self-contained Windows PowerShell 5.1 script. Requires
 installed Git for Windows 2.30 or newer, FullLanguage, and pre-provisioned credentials.
 Run as the current user. No installation, elevation, policy changes are performed. Git hooks, signing,
 credential helpers, TLS checks, and repository filters remain active.
@@ -80,6 +83,8 @@ Windows taskkill.exe only for the process tree owned by this invocation on
 timeout/cancellation. No network contact occurs until an authorized Push.
 
 ## Deployment and help
+
+The script may live in a repository root, a `scripts/` subdirectory, or a separate tools directory; its location does not select the source repository. Relative CLI paths resolve from the caller’s current PowerShell filesystem location. Use absolute `-SourcePath` and `-PlanPath` values for scheduled or cross-directory calls; source files must remain inside their Git worktree and plan/state/log files outside it.
 
 Deploy `sendshards.ps1` alone with its declared Windows/Git dependencies, approved credentials and runtime plan/input data. It does not require Embelish, XML, Markdown or agent instructions to plan/resume a transfer. Optional XML supplies detailed native help; without it, `Get-Help` and `-?` fall back to generated syntax. To retain detailed help, also copy matching `embelish/` and `docs/` directories together so the native `.EXTERNALHELP` directive resolves `../docs/sendshards/sendshards-help.xml`. Keep Markdown and native XML help synchronized when documentation changes.
 

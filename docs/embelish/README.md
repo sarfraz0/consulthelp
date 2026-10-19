@@ -3,7 +3,7 @@
 Protects (embelishes) or restores (deembelishes) a folder as encrypted,
 base64-encoded text shards backed by a split 7-Zip archive.
 
-Implementation: [`embelish.ps1`](../../embelish/embelish.ps1), version 1.1.0.
+Implementation: [`embelish.ps1`](../../embelish/embelish.ps1), version 1.1.1.
 
 ## Documentation
 
@@ -37,6 +37,8 @@ operational facts only (operation, sizes, counts, 7-Zip exit code, timing);
 it never contains the password.
 
 ## Deployment and help
+
+The script can live in `scripts/`, a repository root, or an independent tools directory. Relative source, destination, explicit 7-Zip and log paths resolve from the caller’s current PowerShell filesystem location, independent of the script directory. Version 1.1.1 corrects relative log-path resolution when PowerShell’s location differs from the process directory.
 
 Deploy `embelish.ps1` alone with its declared PowerShell/7-Zip dependencies and an interactive console. No XML, Markdown, agent instructions or companion script is required for archive/restore execution. Optional XML supplies detailed native help; without it, `Get-Help` and `-?` fall back to generated syntax. To retain detailed help, also copy matching `embelish/` and `docs/` directories together so the native `.EXTERNALHELP` directive resolves `../docs/embelish/embelish-help.xml`. Keep Markdown and native XML help synchronized when documentation changes.
 

@@ -2,27 +2,41 @@
 
 [Documentation index](README.md)
 
-Implementation: [`update-calendar.ps1`](../../outcalget/update-calendar.ps1).
+Implementation: [`update-calendar.ps1`](../../outcalget/update-calendar.ps1). Optional [native help](update-calendar-help.xml).
 
-## Extracted setup notes
+## Location and prerequisites
 
-Place this file beside outcalget.ps1 in your Git working tree.
-Adjust only this filename if outcalget.ps1 writes a different file.
+The wrapper can live in a repository root, a `scripts/` subdirectory, or an independent tools directory, and can be invoked from any current directory. It never changes the caller’s PowerShell location. By default it requires `outcalget.ps1` beside it; `-ExporterPath` selects a nonadjacent exporter. Neither script requires Markdown, XML help or agent instructions to execute.
 
-## Existing behavior and prerequisites
+Requires Windows PowerShell 5.1 (`powershell.exe`), installed Git, the exporter’s declared Windows/Outlook dependencies and an existing export configuration. The configured output must be inside a Git working tree whose current branch has an approved upstream/push destination and authentication. The wrapper does not configure Outlook, create a repository, choose a new remote or provision credentials.
 
-Run explicitly with Windows PowerShell in a Git working tree containing both scripts. Git must be installed and the current branch must have an approved push destination and authentication. The helper sets its location to `$PSScriptRoot` and expects `calendar.ics` there. Configure outcalget first so its saved output path matches that filename, or deliberately adjust `$calendarFile` to the approved output. This helper does not create an export configuration.
+The exporter’s successful `-Json` result selects the actual absolute output file. There is no assumption that it is named `calendar.ics`, beside the scripts, or in the current directory. Existing default configuration is used if neither `-Config` nor `-Profile` is supplied. `-Profile` names a saved export configuration, not an Outlook MAPI profile. Missing/invalid configurations fail through the exporter without fallback or setup prompting.
 
 ```powershell
-powershell.exe -NoLogo -NoProfile -File "C:\ApprovedTools\outcalget\update-calendar.ps1"
+# These commands can be invoked from an unrelated directory.
+powershell.exe -NoLogo -NoProfile -File "C:\repo\scripts\update-calendar.ps1"
+powershell.exe -NoLogo -NoProfile -File "C:\repo\scripts\update-calendar.ps1" -Profile team
+powershell.exe -NoLogo -NoProfile -File "C:\Tools\update-calendar.ps1" -ExporterPath "C:\OtherTools\outcalget.ps1" -Config "C:\PrivateState\config.json"
 ```
 
-The helper removes an existing calendar file, invokes `outcalget.ps1` with `-STA`, checks the exit code and output, stages only the calendar, commits it if changed, and runs `git push`. Errors exit with code 1. A push failure leaves the commit local.
+`-ExporterPath` and `-Config` accept absolute paths or paths relative to the caller’s current PowerShell filesystem location. The wrapper makes a relative configuration path absolute before invoking the exporter. `-Config` and `-Profile` are mutually exclusive. The exporter’s saved output and account-bound configuration do not move when the scripts move.
 
-## Review findings
+## Export, commit and failure behavior
 
-This documentation extraction preserves the helper as implemented. Its delete-before-export sequence can discard the previous calendar if export fails, and usually defeats the exporter's existing-output protection. It also intentionally publishes full calendar data through Git: use only an approved destination. `git push` follows the repository's existing branch/remote configuration. These effects differ from running the exporter alone; this helper has no `-WhatIf` contract. Do not execute it during documentation or sandbox checks.
+The wrapper invokes the exporter with `-STA`, `-NonInteractive` and `-Json`, checks both process status and the published-result envelope, then finds the Git worktree containing that output. It uses `git -C` and a literal single-file pathspec to stage and commit only that calendar. An unchanged calendar produces no commit or push. Unrelated staged files remain staged. Native hooks, signing and the repository’s configured `git push` behavior remain active.
 
-Changing deletion, publication, prompting or configuration behavior is a separate implementation change requiring focused review and validation.
+The previous calendar is never pre-deleted. The exporter retains its own atomic-publication/recovery protections. If export fails, the wrapper performs no staging, commit or push; inspect the exporter’s run record if it reports publication before a later failure. A missing/invalid successful result also prevents Git work. If output is outside any Git repository, the export may already have completed, but no Git publication follows. Git failures can leave the calendar staged or a commit local; a push failure explicitly reports that the commit remains local. Errors exit 1; success/preview exits 0.
 
-The helper's two existing `Write-Host` calls produce `PSAvoidUsingWriteHost` analyzer warnings. They remain unchanged in this extraction; the analyzer regression comparison confirms that no new findings were introduced. This does not claim a clean analyzer result for the helper.
+`-WhatIf` or declined `-Confirm` skips export and Git mutations. Dependency/path resolution can still run; preview does not establish Outlook access or remote readiness.
+
+```powershell
+powershell.exe -NoLogo -NoProfile -File "C:\repo\scripts\update-calendar.ps1" -WhatIf
+```
+
+## Implementation and verification, 19 October 2026
+
+`Get-PublishedCalendarPath` validates the successful exporter envelope and existing absolute output path. The child host’s XML transport preserves the JSON string, including Unicode paths, across the native PowerShell boundary. `Get-CalendarRepository` uses Git’s ASCII parent-directory result (`rev-parse --show-cdup`) with the already-known calendar directory; it avoids interpreting a Unicode root path through a legacy console code page. All Git file operations use `--literal-pathspecs`. Public ShouldProcess covers the complete export/commit/push operation.
+
+**PASS:** synthetic calendar fixture families for scripts at the repository root, under `scripts/`, and outside the repository, invoked from an unrelated PowerShell location and process directory. These exercise actual local Git staging, commit and push against filesystem-only bare remotes, Unicode/spaces/brackets in the output path, unchanged output, preservation of unrelated staged files and caller location, failed export, malformed/missing/unpublished results, WhatIf, a nonadjacent exporter and relative explicit config/profile forwarding. Additional fixtures verify commit-hook refusal, rejected push with the commit retained locally, a calendar directly at the repository root, and refusal of a calendar outside a repository. Native help works with and without XML. Parser/default plus Windows PowerShell 5.1 syntax/command/type analysis has zero findings.
+
+The fixture replaces only the Outlook/export process boundary with a synthetic exporter and a local `powershell.exe` adapter that delegates to PowerShell 7.6.6 while omitting Linux’s unsupported `-STA`. No production test switch or dependency was added. `GIT_ALLOW_PROTOCOL=file` restricted Git transport. No real calendar or external destination was used. **NOT RUN:** Windows PowerShell 5.1/Outlook/Git-for-Windows, real signing/credentials/remote protection, Task Scheduler and endpoint acceptance. These Linux fixtures establish the tested path and Git behavior, not Windows business acceptance.
