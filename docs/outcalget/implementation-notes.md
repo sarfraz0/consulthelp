@@ -203,3 +203,9 @@ Original line 3289: Local complexity exception: the three supported source choic
 Original line 3329: Local size/complexity exception: existing transaction/rollback ordering is retained for this scheduler revision.
 
 Original line 3330: Everything below is the entry point. Functions above can be loaded in isolation by tests.
+
+## update-calendar.ps1 feedback correction, 20 October 2026
+
+The wrapper still uses the exporter’s JSON result as the publication contract. `Read-CalendarExportResult` parses it once, preserves process failure, and displays the exporter’s allowlisted error code/message rather than discarding the failure envelope. `Get-CalendarExportMessage` shares scalar-type checks for warning/error display. `Write-CalendarExportNotice` reports the optional run-record location and structured warnings on information/warning streams, leaving the success stream available for the returned object. Malformed/raw stdout is not echoed. A published-before-failure result is disclosed and still stops Git publication.
+
+The entry point announces launch before waiting for the child, confirms completion only after `Get-PublishedCalendarPath` validates the successful publication, and explicitly identifies a skipped ShouldProcess operation. Individual Outlook phases remain suppressed by `-Json`. `-Verbose` identifies the resolved adjacent or explicit exporter. Exporter/COM/worker behavior, configuration selection, previous-output safeguards and Git path/location semantics are unchanged.

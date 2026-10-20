@@ -17,14 +17,10 @@ $ErrorActionPreference = 'Stop'
 function Get-PublishedCalendarPath {
     [CmdletBinding()]
     [OutputType([string])]
-    param([string] $Text)
-    $result = ConvertFrom-Json -InputObject $Text -ErrorAction Stop
-    if ($result -isnot [pscustomobject]) {
-        throw 'outcalget.ps1 did not return an export result.'
-    }
+    param([object] $Result)
     foreach ($key in @('resultSchemaVersion', 'operation', 'exitCode', 'published', 'outputPath')) {
         if ($null -eq $result.PSObject.Properties[$key]) {
-            throw 'outcalget.ps1 returned an incomplete export result.'
+            throw 'outcalget.ps1 returned an incomplete export result. No commit or push was attempted.'
         }
     }
     if (($result.resultSchemaVersion -isnot [int] -and $result.resultSchemaVersion -isnot [long]) -or $result.resultSchemaVersion -ne 1 -or
@@ -32,13 +28,77 @@ function Get-PublishedCalendarPath {
         ($result.exitCode -isnot [int] -and $result.exitCode -isnot [long]) -or $result.exitCode -ne 0 -or
         $result.published -isnot [bool] -or -not $result.published -or
         $result.outputPath -isnot [string] -or [string]::IsNullOrWhiteSpace($result.outputPath)) {
-        throw 'outcalget.ps1 did not confirm a successfully published calendar.'
+        throw 'outcalget.ps1 did not confirm a successfully published calendar. No commit or push was attempted.'
     }
     if (-not [System.IO.Path]::IsPathRooted($result.outputPath) -or
         -not (Test-Path -LiteralPath $result.outputPath -PathType Leaf)) {
-        throw 'The published calendar path is not an existing absolute file.'
+        throw 'The published calendar path is not an existing absolute file. No commit or push was attempted.'
     }
     return (Get-Item -LiteralPath $result.outputPath).FullName
+}
+
+function Get-CalendarExportMessage {
+    [CmdletBinding()]
+    [OutputType([string])]
+    param([object] $Detail)
+    if ($Detail -isnot [pscustomobject]) {
+        return
+    }
+    $code = $Detail.PSObject.Properties['code']
+    $message = $Detail.PSObject.Properties['message']
+    if ($null -ne $code -and $code.Value -is [string] -and $null -ne $message -and $message.Value -is [string]) {
+        return ('[{0}]: {1}' -f $code.Value, $message.Value)
+    }
+}
+
+function Write-CalendarExportNotice {
+    [CmdletBinding()]
+    param([object] $Result)
+    $record = $Result.PSObject.Properties['runLogPath']
+    if ($null -ne $record -and $record.Value -is [string] -and -not [string]::IsNullOrWhiteSpace($record.Value)) {
+        Write-Information -InformationAction Continue -MessageData ('Outlook export run record: ' + $record.Value)
+    }
+    $warnings = $Result.PSObject.Properties['warnings']
+    if ($null -eq $warnings -or $warnings.Value -isnot [array]) {
+        return
+    }
+    foreach ($warning in $warnings.Value) {
+        $message = Get-CalendarExportMessage -Detail $warning
+        if (-not [string]::IsNullOrEmpty($message)) {
+            Write-Warning -Message $message
+        }
+    }
+}
+
+function Read-CalendarExportResult {
+    [CmdletBinding()]
+    [OutputType([pscustomobject])]
+    param([string] $Text, [int] $ExitCode)
+    try {
+        $result = ConvertFrom-Json -InputObject $Text -ErrorAction Stop
+    } catch {
+        throw "outcalget.ps1 returned no valid JSON export result (exit code $ExitCode). No commit or push was attempted."
+    }
+    if ($result -isnot [pscustomobject]) {
+        throw "outcalget.ps1 did not return an export result (exit code $ExitCode). No commit or push was attempted."
+    }
+    Write-CalendarExportNotice -Result $result
+    if ($ExitCode -ne 0) {
+        $failure = "outcalget.ps1 failed (exit code $ExitCode)."
+        $errorProperty = $result.PSObject.Properties['error']
+        if ($null -ne $errorProperty) {
+            $message = Get-CalendarExportMessage -Detail $errorProperty.Value
+            if (-not [string]::IsNullOrEmpty($message)) {
+                $failure += ' ' + $message
+            }
+        }
+        $published = $result.PSObject.Properties['published']
+        if ($null -ne $published -and $published.Value -is [bool] -and $published.Value) {
+            $failure += ' Output was published before the later failure; inspect the run record before retrying.'
+        }
+        throw ($failure + ' No commit or push was attempted.')
+    }
+    return $result
 }
 
 function Get-CalendarRepository {
@@ -77,14 +137,16 @@ try {
         $arguments += @('-Profile', $ExportProfile)
     }
     if (-not $PSCmdlet.ShouldProcess('The configured calendar and its Git repository', 'Export, commit the calendar if changed, and push')) {
+        Write-Information -InformationAction Continue -MessageData 'Calendar update skipped. No export, commit or push was attempted.'
         return
     }
+    Write-Verbose -Message ('Exporter: ' + $exporter)
+    Write-Information -InformationAction Continue -MessageData 'Starting Outlook calendar export. Waiting for outcalget to finish...'
     $output = & $hostPath @arguments
     $exportCode = $LASTEXITCODE
-    if ($exportCode -ne 0) {
-        throw "outcalget.ps1 failed (exit code $exportCode). No commit or push was attempted."
-    }
-    $calendar = Get-PublishedCalendarPath -Text ($output -join "`n")
+    $result = Read-CalendarExportResult -Text ($output -join "`n") -ExitCode $exportCode
+    $calendar = Get-PublishedCalendarPath -Result $result
+    Write-Information -InformationAction Continue -MessageData ('Outlook calendar export completed: ' + $calendar)
     $repository = Get-CalendarRepository -GitPath $gitPath -CalendarPath $calendar
     $gitArguments = @('--literal-pathspecs', '-C', $repository.Root)
     & $gitPath @gitArguments add -- $repository.RelativePath
