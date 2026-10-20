@@ -48,9 +48,7 @@ Directory for the JSON Lines diagnostic file. Defaults to
 
 ### -Force
 
-Overwrite existing output. For Embelish this removes pre-existing shards
-that share the archive base name. For Deembelish this allows extracting into
-a non-empty destination folder.
+Allow replacement only after successful staging. Embelish replaces the selected archive base and removes its obsolete trailing shards; Deembelish merges restored entries into the existing tree. Unrelated files are retained. The entire previous destination is retained in a sibling backup, reported as BackupPath. Force does not bypass locks, validation or ShouldProcess.
 
 ## Examples
 
@@ -88,3 +86,5 @@ None. This script does not accept pipeline input.
 
 [pscustomobject] A single summary record describing the completed (or
 previewed) operation.
+
+Successful results additionally report `BackupPath` (null for a new destination). `RestoredFileCount` counts the extracted files in this operation. Native exit 1 now fails with script exit 3; incomplete mandatory work is not reported as success. See [recovery and permission behavior](operations.md).

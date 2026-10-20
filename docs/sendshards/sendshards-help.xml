@@ -8,8 +8,8 @@
       </maml:description>
     </command:details>
     <maml:description>
-      <maml:para>Revision 1.0.1. One self-contained Windows PowerShell 5.1 script. Requires
-installed Git for Windows 2.30 or newer, FullLanguage, and pre-provisioned credentials.
+      <maml:para>Revision 1.0.2. One self-contained Windows PowerShell 5.1 script. Requires
+Windows 10/11, installed Git for Windows 2.30 or newer, FullLanguage, and pre-provisioned credentials.
 Run as the current user. No installation, elevation, policy changes are performed. Git hooks, signing,
 credential helpers, TLS checks, and repository filters remain active.</maml:para>
       <maml:para>Plan reads local repository information and writes a readable UTF-8 JSON
@@ -23,7 +23,7 @@ remote branch -&gt; checkpoint. All shard sets must have contiguous numbering.
 Each matching checksum manifest is included after that set's shards. Legacy
 sets are accepted with a warning. This does not decrypt or test the archive.
 Already-identical files in the base commit need no new commit.</maml:para>
-      <maml:para>Push starts a 60-minute budget, persisted at &lt;PlanPath&gt;.state.json. The same
+      <maml:para>Push starts a 60-minute budget, persisted at &lt;PlanPath&gt;.state.json and &lt;PlanPath&gt;.start.json. The same
 Push command resumes automatically. Verified Git commits and the actual
 remote branch, rather than an optimistic counter, establish progress. One
 local commit may be awaiting push. Failed/uncertain pushes are not blindly
@@ -63,9 +63,9 @@ use a repository configuration approved for preserving these file bytes.</maml:p
       <maml:para>Runtime limits: 10,000 shard/manifest files, 256 MiB per shard, 8 MiB per JSON
 document, 2 MiB captured output per native stream, 100 log files retained.
 Child executables: installed git.exe and its configured approved helpers/hooks;
-Windows taskkill.exe only for the process tree owned by this invocation on
-timeout/cancellation. No network contact occurs until an authorized Push.</maml:para>
+an in-file Windows Job Object adapter contains Git and its ordinary descendants from creation through cleanup, even after parent exit. No taskkill or uncontained fallback is used. No network contact occurs until an authorized Push.</maml:para>
       <maml:para>The script may be installed under scripts/, in a repository root or in a separate tools directory and invoked from another directory. Relative CLI paths resolve from the caller’s PowerShell filesystem location. Source data stays in its Git worktree and plan/state/logs outside it. No XML or documentation is required to execute.</maml:para>
+      <maml:para>Revision 1.0.2 implements SS-01 and SS-02. Missing checkpoints with a surviving start record or exact transfer commits are refused; matching legacy checkpoints retain their original start. Keep plan/state/start records together. Git starts suspended in a kill-on-close Windows job using job-at-creation and explicit pipe inheritance. Cleanup uncertainty stops successful operations and retains primary failures. Real Windows Job Object, interruption and managed-endpoint acceptance remain NOT RUN; Linux protocol regressions use a development process-boundary adapter. See docs/sendshards/verification.md and operations.md.</maml:para>
     </maml:description>
     <command:syntax>
       <command:syntaxItem>
@@ -117,7 +117,7 @@ timeout/cancellation. No network contact occurs until an authorized Push.</maml:
       <command:parameter required="false" position="named" pipelineInput="false" globbing="false">
         <maml:name>Plan</maml:name>
         <maml:description>
-          <maml:para>Generate a new plan. Existing plan or checkpoint files are never overwritten.</maml:para>
+          <maml:para>Generate a new plan. Existing plan, checkpoint or original-start files are never overwritten.</maml:para>
         </maml:description>
         <dev:type>
           <maml:name>SwitchParameter</maml:name>
@@ -295,7 +295,7 @@ Version 1.0.0 had six findings (F1–F6); all are corrected in 1.0.1. Current ve
         <maml:uri>https://git-scm.com/docs/git-ls-remote</maml:uri>
       </command:navigationLink>
       <command:navigationLink>
-        <maml:uri>https://learn.microsoft.com/en-us/windows-server/administration/windows-commands/taskkill</maml:uri>
+        <maml:uri>https://learn.microsoft.com/en-us/windows/win32/procthread/job-objects</maml:uri>
       </command:navigationLink>
     </command:relatedLinks>
   </command:command>

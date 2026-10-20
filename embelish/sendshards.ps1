@@ -180,37 +180,235 @@ function Receive-NativeStream {
     $Channel.ReadTask = $Channel.Stream.ReadAsync($Channel.Buffer, 0, $Channel.Buffer.Length)
 }
 
-function Stop-OwnedProcess {
-    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '', Justification = 'Mandatory cleanup of the exact child process owned by an authorized Git operation; cancellation must not prompt or skip cleanup.')]
+function Initialize-OwnedGitType {
     [CmdletBinding()]
-    param([System.Diagnostics.Process] $Process, [string] $TaskKillPath)
-    if ($Process.HasExited) {
-        return
-    }
+    param()
+    if ('ConsultHelp.SendshardsNativeV2' -as [type]) { return }
+    Add-Type -ErrorAction Stop -TypeDefinition @'
+using System;
+using System.Collections;
+using System.Collections.Generic;
+using System.ComponentModel;
+using System.IO;
+using System.Runtime.InteropServices;
+using System.Text;
+using System.Threading;
+using System.Diagnostics;
+using Microsoft.Win32.SafeHandles;
 
-    $killer = [System.Diagnostics.Process]::new()
-    try {
-        $killer.StartInfo.FileName = $TaskKillPath
-        $killer.StartInfo.Arguments = '/PID ' + $Process.Id + ' /T /F'
-        $killer.StartInfo.UseShellExecute = $false
-        $killer.StartInfo.CreateNoWindow = $true
-        $killer.StartInfo.RedirectStandardOutput = $true
-        $killer.StartInfo.RedirectStandardError = $true
-        $null = $killer.Start()
-        $null = $killer.StandardOutput.ReadToEndAsync()
-        $null = $killer.StandardError.ReadToEndAsync()
-        if (-not $killer.WaitForExit(5000)) {
-            $killer.Kill()
-            Write-Warning ('Owned-process cleanup exceeded its wait limit. Inspect Git PID: ' + $Process.Id)
+namespace ConsultHelp {
+    public sealed class SendshardsNativeV2 : IDisposable {
+        NativeHandle job, process;
+        sealed class NativeHandle : SafeHandleZeroOrMinusOneIsInvalid {
+            public NativeHandle() : base(true) { }
+            public NativeHandle(IntPtr value) : base(true) { SetHandle(value); }
+            protected override bool ReleaseHandle() { return CloseHandle(handle); }
         }
-        if (-not $Process.WaitForExit(2000)) {
-            Write-Warning ('An owned Git process may still be running. PID: ' + $Process.Id)
+        static void CloseNative(ref NativeHandle handle) {
+            if (handle != null) { handle.Dispose(); handle = null; }
         }
-    } catch {
-        Write-Warning ('Owned-process cleanup failed. Inspect Git PID: ' + $Process.Id)
-    } finally {
-        $killer.Dispose()
+        public Stream Output { get; private set; }
+        public Stream Error { get; private set; }
+        public bool HasExited {
+            get {
+                uint result = WaitForSingleObject(process, 0);
+                if (result == 0xffffffff) throw new Win32Exception(Marshal.GetLastWin32Error());
+                return result == 0;
+            }
+        }
+        public int ExitCode {
+            get {
+                uint code;
+                Check(GetExitCodeProcess(process, out code));
+                return unchecked((int)code);
+            }
+        }
+        static void Check(bool success) {
+            if (!success) throw new Win32Exception(Marshal.GetLastWin32Error());
+        }
+        static void Close(ref IntPtr handle) {
+            if (handle != IntPtr.Zero) { CloseHandle(handle); handle = IntPtr.Zero; }
+        }
+        static void Pipe(out IntPtr read, out IntPtr write) {
+            SECURITY_ATTRIBUTES attributes = new SECURITY_ATTRIBUTES();
+            attributes.Length = Marshal.SizeOf(typeof(SECURITY_ATTRIBUTES));
+            attributes.InheritHandle = 1;
+            Check(CreatePipe(out read, out write, ref attributes, 0));
+        }
+        static IntPtr EnvironmentBlock() {
+            SortedDictionary<string,string> values = new SortedDictionary<string,string>(StringComparer.OrdinalIgnoreCase);
+            foreach (DictionaryEntry entry in Environment.GetEnvironmentVariables())
+                values[(string)entry.Key] = (string)entry.Value;
+            values["GIT_TERMINAL_PROMPT"] = "0";
+            StringBuilder block = new StringBuilder();
+            foreach (KeyValuePair<string,string> entry in values)
+                block.Append(entry.Key).Append('=').Append(entry.Value).Append('\0');
+            block.Append('\0');
+            return Marshal.StringToHGlobalUni(block.ToString());
+        }
+        public static SendshardsNativeV2 Start(string executable, string arguments, string directory) {
+            SendshardsNativeV2 owned = new SendshardsNativeV2();
+            IntPtr inputRead = IntPtr.Zero, inputWrite = IntPtr.Zero;
+            IntPtr outputRead = IntPtr.Zero, outputWrite = IntPtr.Zero;
+            IntPtr errorRead = IntPtr.Zero, errorWrite = IntPtr.Zero;
+            IntPtr attributes = IntPtr.Zero, handles = IntPtr.Zero, jobList = IntPtr.Zero, environment = IntPtr.Zero;
+            bool attributesReady = false;
+            PROCESS_INFORMATION info = new PROCESS_INFORMATION();
+            try {
+                owned.job = CreateJobObject(IntPtr.Zero, null);
+                Check(owned.job != null && !owned.job.IsInvalid);
+                JOBOBJECT_EXTENDED_LIMIT_INFORMATION limits = new JOBOBJECT_EXTENDED_LIMIT_INFORMATION();
+                limits.BasicLimitInformation.LimitFlags = 0x2000; // JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE
+                Check(SetInformationJobObject(owned.job, 9, ref limits, (uint)Marshal.SizeOf(limits)));
+                Pipe(out inputRead, out inputWrite);
+                Pipe(out outputRead, out outputWrite);
+                Pipe(out errorRead, out errorWrite);
+                Check(SetHandleInformation(inputWrite, 1, 0));
+                Check(SetHandleInformation(outputRead, 1, 0));
+                Check(SetHandleInformation(errorRead, 1, 0));
+                IntPtr size = IntPtr.Zero;
+                InitializeProcThreadAttributeList(IntPtr.Zero, 2, 0, ref size);
+                attributes = Marshal.AllocHGlobal(size);
+                Check(InitializeProcThreadAttributeList(attributes, 2, 0, ref size));
+                attributesReady = true;
+                handles = Marshal.AllocHGlobal(3 * IntPtr.Size);
+                Marshal.WriteIntPtr(handles, 0, inputRead);
+                Marshal.WriteIntPtr(handles, IntPtr.Size, outputWrite);
+                Marshal.WriteIntPtr(handles, 2 * IntPtr.Size, errorWrite);
+                Check(UpdateProcThreadAttribute(attributes, 0, new IntPtr(0x20002), handles,
+                    new IntPtr(3 * IntPtr.Size), IntPtr.Zero, IntPtr.Zero));
+                jobList = Marshal.AllocHGlobal(IntPtr.Size);
+                Marshal.WriteIntPtr(jobList, owned.job.DangerousGetHandle());
+                // PROC_THREAD_ATTRIBUTE_JOB_LIST assigns ownership inside CreateProcess itself.
+                Check(UpdateProcThreadAttribute(attributes, 0, new IntPtr(0x2000d), jobList,
+                    new IntPtr(IntPtr.Size), IntPtr.Zero, IntPtr.Zero));
+                STARTUPINFOEX startup = new STARTUPINFOEX();
+                startup.StartupInfo.Size = Marshal.SizeOf(typeof(STARTUPINFOEX));
+                startup.StartupInfo.Flags = 0x100; // STARTF_USESTDHANDLES
+                startup.StartupInfo.Input = inputRead;
+                startup.StartupInfo.Output = outputWrite;
+                startup.StartupInfo.Error = errorWrite;
+                startup.AttributeList = attributes;
+                environment = EnvironmentBlock();
+                StringBuilder command = new StringBuilder("\"" + executable + "\" " + arguments);
+                // Job-at-creation plus suspension covers both helper races and host termination during startup.
+                Check(CreateProcess(executable, command, IntPtr.Zero, IntPtr.Zero, true,
+                    0x08080404, environment, directory, ref startup, out info));
+                owned.process = new NativeHandle(info.Process);
+                info.Process = IntPtr.Zero;
+                owned.Output = new FileStream(new SafeFileHandle(outputRead, true), FileAccess.Read, 8192, false);
+                outputRead = IntPtr.Zero;
+                owned.Error = new FileStream(new SafeFileHandle(errorRead, true), FileAccess.Read, 8192, false);
+                errorRead = IntPtr.Zero;
+                if (ResumeThread(info.Thread) == 0xffffffff) throw new Win32Exception(Marshal.GetLastWin32Error());
+                return owned;
+            } catch {
+                // Also covers assignment failure: an unassigned suspended child must never survive.
+                if (owned.process != null) TerminateProcess(owned.process, 3);
+                owned.Dispose();
+                throw;
+            } finally {
+                Close(ref info.Thread);
+                Close(ref info.Process);
+                Close(ref inputRead); Close(ref inputWrite); // EOF on Git stdin
+                Close(ref outputRead); Close(ref outputWrite);
+                Close(ref errorRead); Close(ref errorWrite);
+                if (attributesReady) DeleteProcThreadAttributeList(attributes);
+                if (attributes != IntPtr.Zero) Marshal.FreeHGlobal(attributes);
+                if (handles != IntPtr.Zero) Marshal.FreeHGlobal(handles);
+                if (jobList != IntPtr.Zero) Marshal.FreeHGlobal(jobList);
+                if (environment != IntPtr.Zero) Marshal.FreeHGlobal(environment);
+            }
+        }
+        public void Dispose() {
+            bool cleanupComplete = true;
+            try {
+                // Parent exit does not release ownership of the rest of this job.
+                if (job != null) {
+                    bool terminated = TerminateJobObject(job, 4);
+                    Stopwatch watch = Stopwatch.StartNew();
+                    JOBOBJECT_BASIC_ACCOUNTING_INFORMATION accounting;
+                    do {
+                        if (!QueryInformationJobObject(job, 1, out accounting,
+                            (uint)Marshal.SizeOf(typeof(JOBOBJECT_BASIC_ACCOUNTING_INFORMATION)), IntPtr.Zero)) {
+                            cleanupComplete = false;
+                            break;
+                        }
+                        if (accounting.ActiveProcesses == 0) break;
+                        Thread.Sleep(25);
+                    } while (terminated && watch.ElapsedMilliseconds < 5000);
+                    cleanupComplete = cleanupComplete && accounting.ActiveProcesses == 0;
+                }
+            } finally {
+                // KILL_ON_JOB_CLOSE remains the backstop, including abrupt host termination.
+                CloseNative(ref job);
+                if (process != null) { WaitForSingleObject(process, 5000); CloseNative(ref process); }
+                if (Output != null) { Output.Dispose(); Output = null; }
+                if (Error != null) { Error.Dispose(); Error = null; }
+            }
+            if (!cleanupComplete) throw new InvalidOperationException("Owned job termination could not be confirmed.");
+        }
+        [StructLayout(LayoutKind.Sequential)] struct JOBOBJECT_BASIC_ACCOUNTING_INFORMATION {
+            public long TotalUserTime, TotalKernelTime, ThisPeriodTotalUserTime, ThisPeriodTotalKernelTime;
+            public uint TotalPageFaultCount, TotalProcesses, ActiveProcesses, TotalTerminatedProcesses;
+        }
+        [StructLayout(LayoutKind.Sequential)] struct SECURITY_ATTRIBUTES {
+            public int Length; public IntPtr SecurityDescriptor; public int InheritHandle;
+        }
+        [StructLayout(LayoutKind.Sequential)] struct STARTUPINFO {
+            public int Size; public IntPtr Reserved, Desktop, Title;
+            public int X, Y, XSize, YSize, XCountChars, YCountChars, FillAttribute, Flags;
+            public short ShowWindow, Reserved2Size;
+            public IntPtr Reserved2, Input, Output, Error;
+        }
+        [StructLayout(LayoutKind.Sequential)] struct STARTUPINFOEX {
+            public STARTUPINFO StartupInfo; public IntPtr AttributeList;
+        }
+        [StructLayout(LayoutKind.Sequential)] struct PROCESS_INFORMATION {
+            public IntPtr Process, Thread; public uint ProcessId, ThreadId;
+        }
+        [StructLayout(LayoutKind.Sequential)] struct JOBOBJECT_BASIC_LIMIT_INFORMATION {
+            public long PerProcessUserTimeLimit, PerJobUserTimeLimit;
+            public uint LimitFlags; public UIntPtr MinimumWorkingSetSize, MaximumWorkingSetSize;
+            public uint ActiveProcessLimit; public UIntPtr Affinity; public uint PriorityClass, SchedulingClass;
+        }
+        [StructLayout(LayoutKind.Sequential)] struct IO_COUNTERS {
+            public ulong ReadOperationCount, WriteOperationCount, OtherOperationCount;
+            public ulong ReadTransferCount, WriteTransferCount, OtherTransferCount;
+        }
+        [StructLayout(LayoutKind.Sequential)] struct JOBOBJECT_EXTENDED_LIMIT_INFORMATION {
+            public JOBOBJECT_BASIC_LIMIT_INFORMATION BasicLimitInformation; public IO_COUNTERS IoInfo;
+            public UIntPtr ProcessMemoryLimit, JobMemoryLimit, PeakProcessMemoryUsed, PeakJobMemoryUsed;
+        }
+        [DllImport("kernel32.dll", SetLastError=true)] static extern bool CloseHandle(IntPtr handle);
+        [DllImport("kernel32.dll", SetLastError=true)] static extern bool CreatePipe(out IntPtr read, out IntPtr write, ref SECURITY_ATTRIBUTES attributes, uint size);
+        [DllImport("kernel32.dll", SetLastError=true)] static extern bool SetHandleInformation(IntPtr handle, uint mask, uint flags);
+        [DllImport("kernel32.dll", CharSet=CharSet.Unicode, SetLastError=true)] static extern NativeHandle CreateJobObject(IntPtr attributes, string name);
+        [DllImport("kernel32.dll", SetLastError=true)] static extern bool SetInformationJobObject(NativeHandle job, int kind, ref JOBOBJECT_EXTENDED_LIMIT_INFORMATION info, uint size);
+        [DllImport("kernel32.dll", SetLastError=true)] static extern bool QueryInformationJobObject(NativeHandle job, int kind, out JOBOBJECT_BASIC_ACCOUNTING_INFORMATION info, uint size, IntPtr returnedSize);
+        [DllImport("kernel32.dll", SetLastError=true)] static extern bool TerminateJobObject(NativeHandle job, uint code);
+        [DllImport("kernel32.dll", SetLastError=true)] static extern bool TerminateProcess(NativeHandle process, uint code);
+        [DllImport("kernel32.dll", SetLastError=true)] static extern uint WaitForSingleObject(NativeHandle handle, uint milliseconds);
+        [DllImport("kernel32.dll", SetLastError=true)] static extern bool GetExitCodeProcess(NativeHandle process, out uint code);
+        [DllImport("kernel32.dll", SetLastError=true)] static extern uint ResumeThread(IntPtr thread);
+        [DllImport("kernel32.dll", SetLastError=true)] static extern bool InitializeProcThreadAttributeList(IntPtr list, int count, uint flags, ref IntPtr size);
+        [DllImport("kernel32.dll", SetLastError=true)] static extern bool UpdateProcThreadAttribute(IntPtr list, uint flags, IntPtr attribute, IntPtr value, IntPtr size, IntPtr previous, IntPtr returnedSize);
+        [DllImport("kernel32.dll")] static extern void DeleteProcThreadAttributeList(IntPtr list);
+        [DllImport("kernel32.dll", CharSet=CharSet.Unicode, SetLastError=true)] static extern bool CreateProcess(string application, StringBuilder command, IntPtr processAttributes,
+            IntPtr threadAttributes, bool inheritHandles, uint flags, IntPtr environment, string directory, ref STARTUPINFOEX startup, out PROCESS_INFORMATION info);
     }
+}
+
+'@
+}
+
+function Start-OwnedGit {
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '', Justification = 'Private native adapter: authorized entry point gates business mutations; Plan uses read-only Git queries and cleanup must always run.')]
+    [CmdletBinding()]
+    [OutputType([object])]
+    param([string] $Executable, [string] $Arguments, [string] $Directory)
+    Initialize-OwnedGitType
+    return [ConsultHelp.SendshardsNativeV2]::Start($Executable, $Arguments, $Directory)
 }
 
 function Invoke-TransferGit {
@@ -223,28 +421,17 @@ function Invoke-TransferGit {
     $quoted = @($argumentsList | ForEach-Object {
             ConvertTo-NativeArgument -Value $_
         })
-    $process = [System.Diagnostics.Process]::new()
+    $process = $null
     $channels = @()
-    $started = $false
+    $completed = $false
     $watch = [System.Diagnostics.Stopwatch]::StartNew()
     try {
-        $process.StartInfo.FileName = $Context.Git
-        $process.StartInfo.Arguments = $quoted -join ' '
-        $process.StartInfo.WorkingDirectory = $Context.Root
-        $process.StartInfo.UseShellExecute = $false
-        $process.StartInfo.CreateNoWindow = $true
-        $process.StartInfo.RedirectStandardInput = $true
-        $process.StartInfo.RedirectStandardOutput = $true
-        $process.StartInfo.RedirectStandardError = $true
-        $process.StartInfo.EnvironmentVariables['GIT_TERMINAL_PROMPT'] = '0'
         try {
-            $started = $process.Start()
+            $process = Start-OwnedGit -Executable $Context.Git -Arguments ($quoted -join ' ') -Directory $Context.Root
+        } catch {
+            Stop-Transfer -Id 'NativeStart' -Message 'Git could not start in its owned Windows job; check the approved executable, language mode, permissions and endpoint policy.'
         }
-        catch {
-            Stop-Transfer -Id 'NativeStart' -Message 'The installed Git process could not start; check its path, permissions, and working directory.'
-        }
-        $process.StandardInput.Close()
-        foreach ($stream in @($process.StandardOutput.BaseStream, $process.StandardError.BaseStream)) {
+        foreach ($stream in @($process.Output, $process.Error)) {
             $buffer = [byte[]]::new(8192)
             $channels += [pscustomobject]@{
                 Stream = $stream
@@ -266,25 +453,33 @@ function Invoke-TransferGit {
             Stop-Transfer -Id 'GitFailure' -Message ('Git failed during ' + $Arguments[0] + ' (exit ' + $code + '). Raw output is omitted for privacy.')
         }
         $encoding = [System.Text.UTF8Encoding]::new($false, $true)
-        return [pscustomobject]@{
+        $result = [pscustomobject]@{
             Code = $code
             Text = $encoding.GetString($channels[0].Data.ToArray())
         }
+        $completed = $true
+        return $result
     } finally {
-        if ($started) {
-            Stop-OwnedProcess -Process $process -TaskKillPath $Context.TaskKill
+        $cleanupFailed = $false
+        if ($null -ne $process) {
+            try { $process.Dispose() } catch {
+                $cleanupFailed = $true
+                Write-Warning 'Owned Git job cleanup could not be confirmed; inspect the transfer before retrying.'
+            }
         }
         foreach ($channel in $channels) {
             $channel.Data.Dispose()
         }
-        $process.Dispose()
         $watch.Stop()
+        if ($completed -and $cleanupFailed) {
+            Stop-Transfer -Id 'OwnedCleanup' -Message 'Owned Git job cleanup could not be confirmed; reconcile the retained transfer before continuing.'
+        }
     }
 }
 
 function Wait-NativeExit {
     [CmdletBinding()]
-    param([System.Diagnostics.Process] $Process, [object[]] $Channels,
+    param([object] $Process, [object[]] $Channels,
         [System.Diagnostics.Stopwatch] $Watch, [double] $Limit)
     while (-not ($Process.HasExited -and $Channels[0].Complete -and $Channels[1].Complete)) {
         foreach ($channel in $Channels) {
@@ -316,7 +511,7 @@ function Write-TransferEvent {
     $entry = [ordered]@{
         utc = [datetime]::UtcNow.ToString('o')
         tool = 'sendshards'
-        version = '1.0.1'
+        version = '1.0.2'
         runId = $Context.RunId
         event = $EventName
     }
@@ -348,7 +543,7 @@ function Initialize-TransferLog {
         $entry = [ordered]@{
             utc = [datetime]::UtcNow.ToString('o')
             tool = 'sendshards'
-            version = '1.0.1'
+            version = '1.0.2'
             runId = $Context.RunId
             event = 'Start'
             status = 'Running'
@@ -582,15 +777,10 @@ function New-TransferContext {
     if (-not [System.IO.File]::Exists($executable)) {
         Stop-Transfer -Id 'GitMissing' -Message 'Supply an approved installed Git executable.'
     }
-    $taskKill = [System.IO.Path]::Combine([System.Environment]::SystemDirectory, 'taskkill.exe')
-    if (-not [System.IO.File]::Exists($taskKill)) {
-        Stop-Transfer -Id 'TaskKillMissing' -Message 'Windows taskkill is unavailable.'
-    }
     Add-Type -AssemblyName System.Runtime.Serialization -ErrorAction Stop
     return [pscustomobject]@{
         Root = $WorkingPath
         Git = $executable
-        TaskKill = $taskKill
         GitTimeoutSeconds = $Timeout
 
         DebugEnabled = $EnableDebug
@@ -613,7 +803,7 @@ function Assert-HostPrerequisite {
     [CmdletBinding()]
     param()
     if ([System.Environment]::OSVersion.Platform -ne [System.PlatformID]::Win32NT) {
-        Stop-Transfer -Id 'Platform' -Message 'This script requires Windows: its process-tree cleanup uses taskkill.'
+        Stop-Transfer -Id 'Platform' -Message 'This script requires Windows 10/11: native Git ownership uses Windows Job Objects.'
     }
     if ($ExecutionContext.SessionState.LanguageMode -ne 'FullLanguage') {
         Stop-Transfer -Id 'LanguageMode' -Message 'This script requires approved FullLanguage execution.'
@@ -720,6 +910,7 @@ function Assert-ExternalPlanPath {
     }
     Assert-OwnedFilePath -Path $Path
     Assert-OwnedFilePath -Path ($Path + '.state.json')
+    Assert-OwnedFilePath -Path ($Path + '.start.json')
     Assert-ControlledDirectory -Path ([System.IO.Path]::GetDirectoryName($Path))
 }
 
@@ -1203,6 +1394,10 @@ function Read-TransferState {
     [OutputType([pscustomobject])]
     param([object] $Context, [object] $Document, [string] $Path, [string] $PlanHash)
     if (-not [System.IO.File]::Exists($Path)) {
+        $startPath = $Path.Substring(0, $Path.Length - '.state.json'.Length) + '.start.json'
+        if ([System.IO.File]::Exists($startPath)) {
+            Stop-Transfer -Id 'MissingCheckpoint' -Message 'The original start record exists but its checkpoint is missing. Restore the matching checkpoint; a new budget will not be created.' -Code 2
+        }
         return [pscustomobject]@{
             SchemaVersion = 1
             PlanId = $Document.PlanId
@@ -1241,6 +1436,34 @@ function Read-TransferState {
         }
     }
     return $state
+}
+
+function Assert-TransferStart {
+    [CmdletBinding()]
+    param([object] $State, [string] $Path)
+    if ([System.IO.File]::Exists($Path)) {
+        $start = Read-TransferJson -Path $Path
+        Assert-ObjectSchema -Value $start -Keys @('SchemaVersion', 'PlanId', 'PlanHash', 'StartedUtc')
+        Assert-IntegerValue -Value $start.SchemaVersion -Minimum 1 -Maximum 1
+        Assert-TextPattern -Value $start.PlanId -Pattern '^[0-9a-f]{32}$'
+        Assert-TextPattern -Value $start.PlanHash -Pattern '^[0-9a-f]{64}$'
+        if ($start.PlanId -cne $State.PlanId -or $start.PlanHash -cne $State.PlanHash -or
+            $start.StartedUtc -cne $State.StartedUtc) {
+            Stop-Transfer -Id 'ChangedStart' -Message 'The checkpoint differs from the original transfer start record; restore matching runtime data.' -Code 2
+        }
+        $null = ConvertFrom-UtcStamp -Value $start.StartedUtc
+    }
+}
+
+function Write-TransferStart {
+    [CmdletBinding()]
+    param([object] $State, [string] $Path)
+    Assert-TransferStart -State $State -Path $Path
+    if (-not [System.IO.File]::Exists($Path)) {
+        Write-AtomicJson -Path $Path -NewOnly -Document ([ordered]@{
+            SchemaVersion = 1; PlanId = $State.PlanId; PlanHash = $State.PlanHash; StartedUtc = $State.StartedUtc
+        })
+    }
 }
 
 function Set-TransferDeadline {
@@ -1399,13 +1622,19 @@ function Invoke-TransferPush {
         Stop-Transfer -Id 'ChangedPlan' -Message 'The plan changed after it was read.' -Code 2
     }
     $statePath = $PlanFile + '.state.json'
+    $startPath = $PlanFile + '.start.json'
+    $hadCheckpoint = [System.IO.File]::Exists($statePath)
     $state = Read-TransferState -Context $Context -Document $Document -Path $statePath -PlanHash $planHash
+    Assert-TransferStart -State $state -Path $startPath
     if ($state.Status -cne 'Complete') {
         Set-TransferDeadline -Context $Context -State $state
     }
     $url = Assert-PlanRepository -Context $Context -Document $Document
     Assert-SourceSnapshot -Context $Context -Document $Document
     $commits = Get-TransferChain -Context $Context -Document $Document
+    if (-not $hadCheckpoint -and $commits.Count -gt 0) {
+        Stop-Transfer -Id 'MissingCheckpoint' -Message 'Transfer commits exist but the original checkpoint is missing. Restore it; a new budget will not be created.' -Code 2
+    }
     $pending = @($Document.Files | Where-Object {
             $_.Pending
         })
@@ -1416,6 +1645,7 @@ function Invoke-TransferPush {
     if (-not [System.IO.File]::Exists($statePath)) {
         Write-AtomicJson -Path $statePath -Document $state -NewOnly
     }
+    Write-TransferStart -State $state -Path $startPath
     $verified = Sync-TransferState -Context $Context -Document $Document -State $state -Commits $commits -Url $url -StatePath $statePath
     while ($verified -lt $pending.Count) {
         $record = $pending[$verified]
@@ -1519,6 +1749,10 @@ function Invoke-PlanPublication {
     }
     if (Test-Path -LiteralPath ($Path + '.state.json')) {
         Stop-Transfer -Id 'CheckpointExists' -Message 'A checkpoint already exists for this filename.' -Code 2
+    }
+
+    if (Test-Path -LiteralPath ($Path + '.start.json')) {
+        Stop-Transfer -Id 'StartExists' -Message 'An original start record already exists for this filename; choose a new plan filename.' -Code 2
     }
 
     $null = Assert-PlanRepository -Context $Context -Document $Document

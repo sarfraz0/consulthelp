@@ -74,3 +74,35 @@ Relocated copies, with no referenced XML or other documentation, completed local
 The 15 old analyzer findings are resolved through code corrections and seven narrowly justified per-function ShouldProcess exceptions described in [implementation notes](implementation-notes.md). No general rule disablement was introduced. This is static compatibility evidence, not Windows runtime acceptance.
 
 **NOT RUN:** Windows PowerShell 5.1/Git-for-Windows execution, nested Windows/drive/UNC/junction/linked-worktree behavior, Windows owned process-tree cleanup, abrupt termination/disk-full/access-denied durability, approved signing/credentials/proxy/LFS integration, Task Scheduler and endpoint acceptance. The remaining platform/operational matrix in the original audit still applies. No real shards, corporate data or external transfer destination were used.
+
+## Production audit, 20 October 2026
+
+**Overall: FAIL / release HOLD.** The [production audit](audit-2026-10-20.md) identifies two new recovery defects: SS-01, missing checkpoint resets an expired partial transfer’s original budget; SS-02, an owned helper survives timeout after its parent exits and cleanup is skipped. See the companion audit for six separate [Embelish findings](../embelish/audit-2026-10-20.md).
+
+**68/68 previous Sendshards scenarios pass** against unchanged production function definitions. Three new failure/destination scenarios yield **1 PASS, 2 FAIL**: a real relative filesystem destination works, while aged-checkpoint loss permits an additional real local push and an exited-parent process fixture leaves its helper alive after GitTimeout. Total: **71 functional scenarios, 69 PASS and 2 FAIL**. Tests restrict Git transport to local files, retain the Windows entry guard and substitute no writer/JSON/native-budget prototype. Owned fixture cleanup targets its recorded child only.
+
+PowerShell 7.6.6/.NET 10.0.12, Git 2.52.0 and PSScriptAnalyzer 1.24.0 on Debian Linux: **0 parser errors; 0 default plus 5.1 syntax/command/type analyzer findings**. AST guideline measurements cover 64 functions plus entry: Read-TransferJson complexity 12/nesting 4, Test-JsonElement complexity 11 and Assert-ControlledDirectory nesting 4 exceed defaults. Entry is complexity 9/nesting 3/66 token-bearing body lines. Count if/elseif, loops, non-default switch clauses, catches, Boolean And/Or; nesting includes if/loop/switch/try containers. Body lines exclude declarations/parameters/comments; nested function scopes are counted separately and public CLI parameter count is exempt. Review/document exceptions rather than claiming a clean complexity gate.
+
+Production code remains byte-identical to commit 07482b5. Current source hashes and detailed reproduction boundaries are recorded in the audit. Windows PowerShell 5.1/Git-for-Windows, native owned process-tree cleanup, durable restart under disk-full/access-denied/hard termination, approved signing/credentials/proxy, Windows filesystem and scheduler/endpoint acceptance remain **NOT RUN**. Dedicated duplicate-code/secret scanner tools were unavailable.
+
+## Production corrections, 20 October 2026 — version 1.0.2
+
+SS-01/SS-02 are implemented. The prior audit's source hashes and failed outcomes describe version 1.0.1 and remain historical. Current synthetic verification uses Debian Linux, PowerShell 7.6.6/.NET 10.0.12, Git 2.52.0 and PSScriptAnalyzer 1.24.0.
+
+| Check | Result |
+|---|---|
+| Existing protocol suites: 35 + 11 + 12 + 10 cases | 68 PASS |
+| Added checkpoint/start/history/native-cleanup-result cases | 10 PASS |
+| Parser and default plus explicit Windows PowerShell 5.1 syntax/command/type profile | 0 findings |
+| Embedded Windows native adapter compilation with C# 5 and four x64 native structure layouts | PASS; Windows invocation NOT RUN |
+| Native help, XML and original UTF-8/no-BOM/LF format | PASS |
+
+Tests retain the real JSON writer/reader, planning, hashing, index/commit/history, pacing, source guards, checkpoint reconciliation and actual local Git pushes. The changed native launch boundary is replaced **only in development AST-loaded tests** by a Linux System.Diagnostics.Process adapter. Relocation checks likewise exercise copies with no docs/XML and reload this development process adapter. No runtime test switch, module, Windows-guard bypass or alternate production launch path was added. These 78 passing cases establish local protocol behavior, not Windows process containment.
+
+New cases verify that the formerly expired partial transfer cannot send the second shard after checkpoint loss; a surviving original-start record rejects missing state before publication; genuine first Push persists matching state/start and completes; legacy state retains its original start on upgrade; conflicting starts are refused; a local unpushed transfer commit cannot manufacture new state; a relative local destination remains consistent; uncertain cleanup prevents an otherwise successful native result; new Plan refuses a surviving start filename; and first-Push index refusal leaves no orphan start record.
+
+Both embedded native sources compile with C# language version 5. x64 layouts match STARTUPINFOEX (112 bytes), JOBOBJECT_EXTENDED_LIMIT_INFORMATION (144), JOBOBJECT_BASIC_ACCOUNTING_INFORMATION (48), SECURITY_ATTRIBUTES (24) and the companion FILE_ID_INFO (24). This does not exercise Windows marshalling, CreateProcess/job APIs, job nesting, endpoint allowlisting or helper behavior. The old Linux exited-parent fixture cannot validate the replacement Windows implementation and is **NOT RUN against that adapter**; it is not silently counted as passed.
+
+**Windows release gate remains open:** real PowerShell 5.1 CLI Plan/Push/resume with no XML, supported Git for Windows and approved hooks/signing/credentials/proxy; parent-exit/inherited-pipe/grandchild timeout and Ctrl+C/hard-host termination; no surviving owned or terminated unrelated processes; job-policy refusal; disk-full/permission/state-loss interruption; UNC/ACL/cloud/linked-worktree and scheduler acceptance. Completed-resume and immutable-budget contracts remain distinct. Runtime-data custody is required if all start/checkpoint evidence is lost. See [recovery](operations.md) and [native-boundary exceptions](implementation-notes.md).
+
+Current implementation SHA-256: `402cf4925c23cad96bdbbf78c7c177c650112c1dec4e362b2e4ea909b7ceda4c`.

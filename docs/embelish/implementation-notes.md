@@ -140,3 +140,28 @@ Original line 775: --- Entry point (the only place that owns 'exit') ---
 Original line 779: Keep -Debug non-prompting (5.1 would otherwise set Inquire).
 
 Original line 813: Report non-terminating so the mapped exit code (not the default 1) is used.
+
+## Revision 1.2.0 corrections
+
+EB-01–EB-06 are implemented in the standalone file. `New-CleanOutputDirectory` remains available for its original helper help; the business operations now use `Get-EmbelishDestination` and `New-OutputTransaction` without predeleting final output. `Get-OrderedVolume` validates canonical contiguous nonempty numbering and output counts, and `Resolve-ShardManifest` honors explicit set selection. `Copy-Base64Stream` bounds memory while retaining the original encoding. Native exit 1 is rejected as incomplete mandatory work. `Write-DiagnosticEvent` persists only typed allowlisted fields; the boundary omits raw exception text and emits a stable input/operational/unexpected category.
+
+`Get-EmbelishPathIdentity` contains a narrow Windows adapter for normalized names and FILE_ID_INFO identities. Volume/file IDs are compared against existing ancestors to detect overlap even through alternate drive/UNC/short-name representations; canonical names also stabilize lock filenames. File-identity API failure causes refusal. Directory-link ancestry is separately refused because directory replacement and lock ownership must not be redirected during a run. Unix development uses normalized paths with linked ancestry refused; arbitrary bind-mount identity is not certified.
+
+`Set-OutputAccess` protects staging, copies existing Windows access DACLs as protected snapshots and Unix mode bits, and fails rather than silently publishing with unknown permissions. This changes inheritance and does not clone ownership/audit/alternate-stream metadata; see operations. Its Unix-only reflection selects .NET 6 Unix-mode members absent from .NET Framework, never a Windows fallback. `Copy-OutputTree` streams into existing prepared files to retain their permissions. `Publish-OutputTransaction` rechecks a copied byte inventory and moved previous tree, preserves unrelated entries and retains the entire original on replacement. `Close-OutputTransaction` attempts conditional rollback and reports retained recovery artifacts without masking a primary failure. No claim of atomic multi-directory publication or exclusion of external writers is made.
+
+Two narrowly scoped ShouldProcess analyzer exceptions apply to `New-OutputTransaction` and `Set-OutputAccess`: both are private adapters invoked after the business operation's ShouldProcess gate, and neither may independently skip required staging protection. Preview creates no business staging/lock/output; optional diagnostic I/O remains disclosed.
+
+### Function-named engineering exceptions
+
+The current AST convention counts clauses/loops/catches/Boolean operators, maximum nested control containers, and nonblank token body lines excluding parameter declarations. Here-string native source lines are included conservatively. Parameters remain within six. Focused exceptions retain cohesive validation/publication boundaries rather than obscure their order:
+
+| Function | Exception | Reason |
+|---|---|---|
+| Write-DiagnosticEvent | Complexity 15 | Explicit fixed allowlist and primitive type checks are privacy controls in a compact body. |
+| Get-OrderedVolume | Complexity 13 | Bounds, parse, canonical identity, nonempty data, duplicates and gaps are checked together before mutation. |
+| Get-EmbelishPathIdentity | Body 83 lines, including native source | The single-file adapter keeps reviewed signatures, identity/name checks and resource ownership together; individual C# methods are short. |
+| Get-EmbelishDestination | Complexity 12 | Platform identity, overlap, root/file and Force preflight checks form one safety decision. |
+| Copy-OutputTree | Nesting 4 | A per-file stream try/finally inside inventory/type handling closes both streams even on failure. |
+| Publish-OutputTransaction | Complexity 16 | Snapshot/copy/merge, access restoration, prepublication recheck and retained previous-generation ordering must remain reviewable together. |
+
+Native references: [GetFinalPathNameByHandle](https://learn.microsoft.com/en-us/windows/win32/api/fileapi/nf-fileapi-getfinalpathnamebyhandlew), [GetFileInformationByHandleEx](https://learn.microsoft.com/en-us/windows/win32/api/winbase/nf-winbase-getfileinformationbyhandleex), [FILE_ID_INFO](https://learn.microsoft.com/en-us/windows/win32/api/winbase/ns-winbase-file_id_info), [Set-Acl, PowerShell 5.1](https://learn.microsoft.com/en-us/powershell/module/microsoft.powershell.security/set-acl?view=powershell-5.1).

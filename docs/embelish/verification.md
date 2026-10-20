@@ -59,3 +59,37 @@ The calendar Git wrapper was reviewed statically rather than executed: it has no
 Revision **1.1.1** fixes caller-relative `-LogDirectory` resolution. Using PowerShell 7.6.6 on Debian Linux, **six Embelish/Deembelish previews passed** across copies at a repository root, `scripts/`, and an external tools directory, with no XML/help/documentation present. PowerShell location was explicitly changed away from the process directory; relative literal source, destination and log paths resolved there. Installed 7-Zip was supplied, diagnostic JSON Lines were checked, and no archive/extraction output was created. Six additional exporter/Sendshards standalone help/version/platform checks passed across the same layouts. A separate invalid-log-path check confirmed that path-resolution failure remains a nonfatal diagnostic warning.
 
 All four repository scripts parse with zero errors and have zero default plus Windows PowerShell 5.1 syntax/command/type analyzer findings. No Windows/7-Zip password session, real archive round trip or scheduler/endpoint acceptance was executed in this task. The earlier archive evidence above remains historical.
+
+## Production audit, 20 October 2026
+
+**Overall: FAIL / release HOLD.** The [production audit](audit-2026-10-20.md) records six grouped findings (EB-01–EB-06), distinguishing already documented unsafe behavior from new cases. Focused function checks: **3 PASS, 7 FAIL**. A real interactive 7-Zip 25.01 encrypted four-volume archive/base64/restore round trip passed, with SHA-256-identical restored files, nested Unicode names and an empty directory. Three real negative archive/restore checks failed their safety expectations: Linux leading-dot zero-output success, late collision overwrite without Force, and corrupted restore destroying previous output. A real CLI missing-source privacy check also failed. Total: **15 logical functional scenarios, 4 PASS and 11 FAIL**.
+
+The initial suspected native-start stale-exit-code path was not reproduced: the actual adapter and complete operation correctly rejected an unlaunchable executable on this runtime. Those are passing refusal checks, separate from the confirmed leading-dot zero-output defect. The observed native creation password prompt occurred once on this installed Linux build, so the older two-prompt text is not established cross-platform behavior.
+
+PowerShell 7.6.6/.NET 10.0.12 on Debian Linux: **0 parser errors; 0 default plus 5.1 syntax/command/type analyzer findings**. AST measurements cover 15 functions plus the entry; all are within the declared counting defaults, with Invoke-EmbelishOperation at complexity 10/nesting 3/80 token-bearing body lines and entry at complexity 4/nesting 2/43 lines. Public CLI parameter count is exempt. Code remains byte-identical to commit 07482b5; no bug fix or runtime dependency is included in this audit.
+
+All native archive/password work used a synthetic fixture and the actual terminal; isolated functions were AST-loaded, not whole-script dot-sourced. Windows PowerShell 5.1/7-Zip, Windows filesystem/console/application-control/Scheduler acceptance, large-resource/fault-injection boundaries and native lifetime under cancellation remain **NOT RUN**. Dedicated secret/duplicate-code scanners were unavailable. Existing passing extraction/static evidence does not supersede this audit’s failed behavior gates.
+
+## Production corrections, 20 October 2026 — version 1.2.0
+
+EB-01–EB-06 are implemented; the baseline audit above remains historical evidence. Current checks use Debian Linux, PowerShell 7.6.6/.NET 10.0.12, native 7-Zip 25.01 and PSScriptAnalyzer 1.24.0, with synthetic data only.
+
+| Check | Result |
+|---|---|
+| Original focused safety/refusal regressions | 10 PASS (previously 3 PASS / 7 FAIL) |
+| Added publication, recovery, alias, base64, preview and permission scenarios | 16 PASS |
+| Native interactive standalone encrypted/split/base64/restore scenarios | 8 PASS |
+| Parser, default analyzer and explicit Windows PowerShell 5.1 syntax/command/type profile | 0 findings |
+| Original encoding/newlines | UTF-8 without BOM and LF preserved |
+| Native help XML and 15 existing helper help entries from unrelated location | PASS |
+| Embedded Windows adapter compilation as C# 5; FILE_ID_INFO x64 layout | PASS; Windows invocation NOT RUN |
+
+The native scenarios execute a relocated script without docs/XML, create four leading-dot encrypted volumes, select one set among two, compare all restored SHA-256 hashes/Unicode names/empty directory, reject corrupted data and wrong passwords without damaging previous output, preserve an actual late write during the password prompt, retain a successful Force backup/unrelated file, redact private CLI markers, and refuse ambiguous directory selection. The eight logical scenarios include several outcome assertions. Production password handling remains the native terminal flow, without credential arguments/environment/configuration.
+
+Added publication checks inject destination changes and a final rename conflict, verify both old output and late writers survive, require manual inspection of retained transactions, test exclusive tool locking, check symlink/overlap refusal, verify streaming base64 bytes and no BOM/newline, reject empty output/native warnings, and verify 0700 private Unix staging/new output plus existing file/directory mode preservation. Windows access-DACL cloning is implemented but **NOT RUN** on Windows.
+
+Development PTY trials initially sent synthetic passwords before 7-Zip finished configuring console input; two trials reached the harness's 60-second ceiling. Prompt synchronization was corrected and the native suite rerun. Old output remained intact in the interrupted trial. These development timeouts do not establish a native codec timeout defect. Embelish still has no internal native timeout; cancellation and hard termination require recovery inspection.
+
+**Target release gate remains open:** Windows PowerShell 5.1/7-Zip console execution, native file-ID/short-name/UNC/link behavior, DACL snapshots/managed endpoint policy, interruption at each rename boundary, disk-full/access-denied/resource limits and actual intended source/recipient inventory acceptance. Linux function/native checks and static compatibility do not certify these. Publication retains a rename gap, previous trees, permission-snapshot semantics and documented metadata limits; do not treat it as a complete filesystem backup or authenticity protocol. See [operations](operations.md) and function-named [engineering exceptions](implementation-notes.md).
+
+Current implementation SHA-256: `4917af4c6a2e517aeb9db6115aefabed038597a19be4d4bb91be31388114ae03`.

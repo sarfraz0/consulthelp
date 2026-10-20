@@ -2,9 +2,11 @@
 
 Plans and resumes a paced transfer of archive shards to an approved Git remote.
 
-Implementation: [`sendshards.ps1`](../../embelish/sendshards.ps1), version 1.0.1.
+Implementation: [`sendshards.ps1`](../../embelish/sendshards.ps1), version 1.0.2.
 
 Version 1.0.1 fixes all six findings from the [18 October audit](audit-2026-10-18.md). The [19 October verification](verification.md#fixes-and-relocation-verification-19-october-2026) records passing synthetic regressions and relocation checks. Target Windows execution remains unverified.
+
+**Production readiness: target acceptance pending.** Version 1.0.2 implements SS-01/SS-02 from the [20 October audit](audit-2026-10-20.md). Checkpoint-loss regressions pass; the new Windows Job Object adapter still requires real Windows/endpoint acceptance. See [current verification](verification.md).
 
 ## Documentation
 
@@ -13,12 +15,13 @@ Version 1.0.1 fixes all six findings from the [18 October audit](audit-2026-10-1
 - [Function documentation and implementation rationale](implementation-notes.md)
 - [Historical verification and current extraction](verification.md)
 - [18 October verification and gap audit](audit-2026-10-18.md)
+- [20 October production audit and release gates](audit-2026-10-20.md)
 - [Native PowerShell help](sendshards-help.xml)
 
 ## Behavior and prerequisites
 
-Revision 1.0.1. One self-contained Windows PowerShell 5.1 script. Requires
-installed Git for Windows 2.30 or newer, FullLanguage, and pre-provisioned credentials.
+Revision 1.0.2. One self-contained Windows PowerShell 5.1 script. Requires
+Windows 10/11, installed Git for Windows 2.30 or newer, FullLanguage, and pre-provisioned credentials.
 Run as the current user. No installation, elevation, policy changes are performed. Git hooks, signing,
 credential helpers, TLS checks, and repository filters remain active.
 
@@ -35,7 +38,8 @@ Each matching checksum manifest is included after that set's shards. Legacy
 sets are accepted with a warning. This does not decrypt or test the archive.
 Already-identical files in the base commit need no new commit.
 
-Push starts a 60-minute budget, persisted at <PlanPath>.state.json. The same
+Push starts a 60-minute budget, persisted at <PlanPath>.state.json and an
+original start record at <PlanPath>.start.json. The same
 Push command resumes automatically. Verified Git commits and the actual
 remote branch, rather than an optimistic counter, establish progress. One
 local commit may be awaiting push. Failed/uncertain pushes are not blindly
@@ -79,8 +83,9 @@ use a repository configuration approved for preserving these file bytes.
 Runtime limits: 10,000 shard/manifest files, 256 MiB per shard, 8 MiB per JSON
 document, 2 MiB captured output per native stream, 100 log files retained.
 Child executables: installed git.exe and its configured approved helpers/hooks;
-Windows taskkill.exe only for the process tree owned by this invocation on
-timeout/cancellation. No network contact occurs until an authorized Push.
+an in-file Windows Job Object adapter contains each Git invocation and its
+ordinary descendants from creation through cleanup, including after parent exit.
+No taskkill dependency or uncontained fallback is used. No network contact occurs until an authorized Push.
 
 ## Deployment and help
 
@@ -96,4 +101,6 @@ Deploy `sendshards.ps1` alone with its declared Windows/Git dependencies, approv
 
 - https://git-scm.com/docs/git-push
 - https://git-scm.com/docs/git-ls-remote
-- https://learn.microsoft.com/en-us/windows-server/administration/windows-commands/taskkill
+- https://learn.microsoft.com/en-us/windows/win32/procthread/job-objects
+
+Keep the plan, checkpoint and original start record together. A missing checkpoint with a start record or exact local transfer history is refused; restore the matching runtime data rather than obtaining a fresh hour. A valid older checkpoint gains a matching start record without changing its start. New Plan refuses filenames with surviving state or start records.

@@ -15,12 +15,12 @@ text shard ('&lt;name&gt;.7z.001.txt', '.002.txt', ...). Deembelish reverses the
 operation: it base64-decodes the shards back into 7-Zip volumes and extracts
 them into a folder. Compression, archive encryption, filename hiding
 and volume splitting are delegated to the 7-Zip command-line tool; a
-short-lived staging directory under the system temp folder holds the
-intermediate volumes and is removed when the operation finishes.</maml:para>
+private staging tree beside the destination holds native volumes and extracted files. Validated output is published with recoverable directory renames and retained previous output.</maml:para>
       <maml:para>The encryption password is never accepted on the command line, stored in a
 file, placed in an environment variable or written to any log. Instead, the
-7-Zip tool prompts for it directly on the console. Embelish asks for the
-password twice (enter and verify); deembelish asks once. Because of this the
+7-Zip tool prompts for it directly on the console. 7-Zip owns password entry; prompt count depends on the installed build.
+The audited Linux 25.01 creation/extraction invocations each prompted once;
+Windows console behavior remains unverified. Because of this the
 script is interactive by design and is not intended for silent, unattended
 scheduling unless a separate provisioned credential mechanism is added.</maml:para>
       <maml:para>Diagnostic events are written as JSON Lines to a per-run file under
@@ -28,6 +28,7 @@ scheduling unless a separate provisioned credential mechanism is added.</maml:pa
 operational facts only (operation, sizes, counts, 7-Zip exit code, timing);
 it never contains the password.</maml:para>
       <maml:para>Revision 1.1.1 resolves relative log paths from the caller’s PowerShell filesystem location. The script may be installed under scripts/ or in another directory; relative source/destination/explicit executable paths also use the caller’s location. XML help and documentation are optional for execution.</maml:para>
+      <maml:para>Revision 1.2.0 implements EB-01 through EB-06: staged archive/restore publication, previous-generation backups, late-collision refusal, canonical contiguous nonempty volumes, exact file selection and diagnostic allowlisting. Native exit 1 now fails operationally. Windows filesystem/ACL/console and managed-endpoint acceptance remain NOT RUN. See docs/embelish/verification.md and operations.md.</maml:para>
     </maml:description>
     <command:syntax>
       <command:syntaxItem>
@@ -166,9 +167,7 @@ Allowed characters: letters, digits, dot, dash and underscore.</maml:para>
       <command:parameter required="false" position="named" pipelineInput="false" globbing="false">
         <maml:name>Force</maml:name>
         <maml:description>
-          <maml:para>Overwrite existing output. For Embelish this removes pre-existing shards
-that share the archive base name. For Deembelish this allows extracting into
-a non-empty destination folder.</maml:para>
+          <maml:para>Allow replacement only after successful staging. Embelish replaces the selected archive base and removes its obsolete trailing shards; Deembelish merges restored entries into the existing tree. Unrelated files are retained. The entire previous destination is retained in a sibling backup, reported as BackupPath. Force does not bypass locks, validation or ShouldProcess.</maml:para>
         </maml:description>
         <dev:type>
           <maml:name>SwitchParameter</maml:name>
@@ -246,8 +245,7 @@ Standalone execution requires no XML, Markdown or agent instruction files. Decla
                  password prompt and Task Scheduler execution (no Windows
                  host in the sandbox).
   NOT APPLICABLE - Code signing (performed by the owner at deployment).</maml:para>
-        <maml:para>CURRENT DOCUMENTATION CLARIFICATIONS
-Archive encryption is delegated to 7-Zip; this script does not implement a separate authenticity check. Base64 text grows beyond the binary volume size. WhatIf can still initialize/write/prune diagnostics. Force can remove old shards before archive success; failed conversion can leave partial shards. Multiple sets in one directory are refused even when SourcePath names one shard; gap validation is limited to the first number. The producer emits no checksum manifest. PowerShell NonInteractive is not a general control over native password prompts. Logs may include sourceLeaf and raw exception messages; review before sharing. See docs/embelish/operations.md for these preserved implementation limits.</maml:para>
+        <maml:para>Archive encryption is delegated to 7-Zip; there is no separate authenticity or source-inventory manifest. WhatIf can still initialize/write/prune diagnostics. Staging uses an exclusive sibling lock and fixed recovery directory. Force preserves unrelated bytes and retains the full previous tree in BackupPath/previous. Interrupted publication requires inspection before retry; a rename gap is recoverable, not a multi-directory atomic transaction. Windows staging is private; old access DACLs become protected snapshots, new destinations are private to the invoking user. Unix development requires PowerShell 7.2/.NET 6+. Source/output aliases, linked ancestry and linked output entries are refused. JSON logs omit paths/raw exceptions; native console output and result objects can contain filenames/paths. See docs/embelish/operations.md for storage, permission and recovery details.</maml:para>
       </maml:alert>
     </maml:alertSet>
     <command:examples>
@@ -299,7 +297,7 @@ restores the folder into C:\restore\project.</maml:para>
     </command:details>
     <maml:description>
       <maml:para>Logging failures never abort the business operation; they degrade to a
-single warning. Callers must pass only non-secret fields in -Data.</maml:para>
+single warning. Only typed allowlisted operational fields are persisted; arbitrary Data keys, paths and raw exception messages are omitted.</maml:para>
     </maml:description>
     <command:syntax>
       <command:syntaxItem>

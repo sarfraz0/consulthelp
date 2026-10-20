@@ -6,7 +6,7 @@
 
 ### -Plan
 
-Generate a new plan. Existing plan or checkpoint files are never overwritten.
+Generate a new plan. Existing plan, checkpoint or original-start files are never overwritten.
 
 ### -Push
 
@@ -83,3 +83,5 @@ None. Source files and the persisted plan are input data.
 
 None on the success stream. Plan produces a JSON document. Push maintains a
 checkpoint and sanitized JSONL operational logs. Verbose/Debug use their streams.
+
+Push runtime data includes `<PlanPath>.start.json` alongside the checkpoint. Retain both for resume; lost/inconsistent state is refused rather than resetting the original hour. See [recovery and native process requirements](operations.md).
