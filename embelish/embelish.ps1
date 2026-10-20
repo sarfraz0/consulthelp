@@ -44,7 +44,7 @@ Set-StrictMode -Version 3.0
 $ErrorActionPreference = 'Stop'
 
 $script:ToolName = 'embelish'
-$script:ToolVersion = '1.2.0'
+$script:ToolVersion = '1.2.1'
 $script:RunId = [guid]::NewGuid().ToString('N').Substring(0, 12)
 $script:LogPath = $null
 $script:DebugEnabled = $false
@@ -322,11 +322,11 @@ function Copy-Base64Stream {
     try {
         $outputStream = [System.IO.File]::Open($OutputPath, [System.IO.FileMode]::CreateNew,
             [System.IO.FileAccess]::Write, [System.IO.FileShare]::None)
-        if ($Encode) {
-            $transform = [System.Security.Cryptography.ToBase64Transform]::new()
-        } else {
-            $transform = [System.Security.Cryptography.FromBase64Transform]::new()
+        if (-not $Encode) {
+            Read-Base64Stream -InputStream $inputStream -OutputStream $outputStream
+            return
         }
+        $transform = [System.Security.Cryptography.ToBase64Transform]::new()
         $crypto = [System.Security.Cryptography.CryptoStream]::new($outputStream, $transform,
             [System.Security.Cryptography.CryptoStreamMode]::Write)
         $inputStream.CopyTo($crypto, 81920)
@@ -336,6 +336,37 @@ function Copy-Base64Stream {
         if ($null -ne $outputStream) { $outputStream.Dispose() }
         if ($null -ne $transform) { $transform.Dispose() }
         $inputStream.Dispose()
+    }
+}
+
+function Read-Base64Stream {
+    [CmdletBinding()]
+    param([System.IO.Stream] $InputStream, [System.IO.Stream] $OutputStream)
+    $reader = [System.IO.StreamReader]::new($InputStream, [System.Text.Encoding]::ASCII, $false, 8192, $true)
+    $buffer = [char[]]::new(8192)
+    $carry = ''
+    $padded = $false
+    try {
+        while (($count = $reader.Read($buffer, 0, $buffer.Length)) -gt 0) {
+            $text = [regex]::Replace([string]::new($buffer, 0, $count), '[ \t\r\n]', '')
+            if ($padded -and $text.Length -gt 0) {
+                throw [System.FormatException]::new('Base64 data follows the final padded group.')
+            }
+            $text = $carry + $text
+            $complete = $text.Length - ($text.Length % 4)
+            $carry = $text.Substring($complete)
+            if ($complete -gt 0) {
+                $fragment = $text.Substring(0, $complete)
+                $bytes = [System.Convert]::FromBase64String($fragment)
+                $OutputStream.Write($bytes, 0, $bytes.Length)
+                $padded = $fragment.IndexOf('=') -ge 0
+            }
+        }
+        if ($carry.Length -ne 0) {
+            throw [System.FormatException]::new('The final base64 group is incomplete.')
+        }
+    } finally {
+        $reader.Dispose()
     }
 }
 
@@ -512,7 +543,11 @@ function Get-EmbelishDestination {
     [OutputType([string])]
     param([string] $Source, [string] $Destination, [bool] $AllowExisting)
     $fullPath = $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($Destination)
-    $fullPath = [System.IO.Path]::GetFullPath($fullPath).TrimEnd([System.IO.Path]::DirectorySeparatorChar)
+    $fullPath = [System.IO.Path]::GetFullPath($fullPath)
+    if ($fullPath -eq [System.IO.Path]::GetPathRoot($fullPath)) {
+        throw [System.ArgumentException]::new('The destination must be a non-root directory path.')
+    }
+    $fullPath = $fullPath.TrimEnd([System.IO.Path]::DirectorySeparatorChar)
     Assert-EmbelishPath -Path $Source
     Assert-EmbelishPath -Path $fullPath
     $fullPath = Get-EmbelishPathIdentity -Path $fullPath -ForFileSystem
@@ -593,7 +628,7 @@ function Set-OutputAccess {
             $security.SetSecurityDescriptorSddlForm($original.GetSecurityDescriptorSddlForm('Access'), 'Access')
             $security.SetAccessRuleProtection($true, $true)
         }
-        Set-Acl -LiteralPath $Path -AclObject $security
+        Set-Acl -LiteralPath $Path -AclObject $security -Confirm:$false -ErrorAction Stop
         return
     }
     $getter = [System.IO.File].GetMethod('GetUnixFileMode', [type[]]@([string]))
@@ -630,11 +665,13 @@ function New-OutputTransaction {
     $lock = [System.IO.File]::Open($lockPath, [System.IO.FileMode]::OpenOrCreate,
         [System.IO.FileAccess]::ReadWrite, [System.IO.FileShare]::None)
     $transaction = $prefix + '.transaction'
+    $created = $false
     try {
         if (Test-Path -LiteralPath $transaction) {
             throw [System.IO.IOException]::new('An interrupted output transaction needs recovery; inspect the sibling .embelish.transaction directory before retrying.')
         }
         $null = [System.IO.Directory]::CreateDirectory($transaction)
+        $created = $true
         Set-OutputAccess -Path $transaction
         foreach ($name in @('native', 'incoming', 'ready')) {
             $child = [System.IO.Path]::Combine($transaction, $name)
@@ -650,6 +687,13 @@ function New-OutputTransaction {
             Publishing = $false; BackupPath = $null
         }
     } catch {
+        if ($created) {
+            try {
+                [System.IO.Directory]::Delete($transaction, $true)
+            } catch {
+                Write-Warning 'Owned staging initialization cleanup failed; inspect the transaction directory before retrying.'
+            }
+        }
         $lock.Dispose()
         throw
     }

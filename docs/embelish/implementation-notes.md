@@ -160,8 +160,14 @@ The current AST convention counts clauses/loops/catches/Boolean operators, maxim
 | Write-DiagnosticEvent | Complexity 15 | Explicit fixed allowlist and primitive type checks are privacy controls in a compact body. |
 | Get-OrderedVolume | Complexity 13 | Bounds, parse, canonical identity, nonempty data, duplicates and gaps are checked together before mutation. |
 | Get-EmbelishPathIdentity | Body 83 lines, including native source | The single-file adapter keeps reviewed signatures, identity/name checks and resource ownership together; individual C# methods are short. |
-| Get-EmbelishDestination | Complexity 12 | Platform identity, overlap, root/file and Force preflight checks form one safety decision. |
+| Get-EmbelishDestination | Complexity 13 | Platform identity, overlap, root/file and Force preflight checks form one safety decision. |
 | Copy-OutputTree | Nesting 4 | A per-file stream try/finally inside inventory/type handling closes both streams even on failure. |
 | Publish-OutputTransaction | Complexity 16 | Snapshot/copy/merge, access restoration, prepublication recheck and retained previous-generation ordering must remain reviewable together. |
 
 Native references: [GetFinalPathNameByHandle](https://learn.microsoft.com/en-us/windows/win32/api/fileapi/nf-fileapi-getfinalpathnamebyhandlew), [GetFileInformationByHandleEx](https://learn.microsoft.com/en-us/windows/win32/api/winbase/nf-winbase-getfileinformationbyhandleex), [FILE_ID_INFO](https://learn.microsoft.com/en-us/windows/win32/api/winbase/ns-winbase-file_id_info), [Set-Acl, PowerShell 5.1](https://learn.microsoft.com/en-us/powershell/module/microsoft.powershell.security/set-acl?view=powershell-5.1).
+
+## Revision 1.2.1 focused corrections
+
+`Read-Base64Stream` uses bounded character buffers, a carry of at most three characters and native Convert.FromBase64String for complete groups. A terminal-padding flag rejects later data across buffers. This restores strict decoding without the whole-file allocation of the original implementation or the silent partial-group discard of FromBase64Transform. `Copy-Base64Stream` retains the encoder and closes its file streams on decode failure. `New-OutputTransaction` tracks whether this invocation created the directory before cleaning up initialization failures; preexisting recovery data is never removed by that catch. `Set-OutputAccess` passes Confirm:false to mandatory Set-Acl under the already approved business operation; errors still terminate. No new analyzer exception, native API or executable dependency is added.
+
+`Get-EmbelishDestination` checks the full filesystem root before trimming separators or resolving native identity. Its complexity is now 13; the existing function-named validation exception covers this additional input check. The root guard is tested locally; the Windows `C:\`/`C:` distinction remains a static platform finding until a real Windows session is available.

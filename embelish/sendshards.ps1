@@ -511,7 +511,7 @@ function Write-TransferEvent {
     $entry = [ordered]@{
         utc = [datetime]::UtcNow.ToString('o')
         tool = 'sendshards'
-        version = '1.0.2'
+        version = '1.0.3'
         runId = $Context.RunId
         event = $EventName
     }
@@ -543,7 +543,7 @@ function Initialize-TransferLog {
         $entry = [ordered]@{
             utc = [datetime]::UtcNow.ToString('o')
             tool = 'sendshards'
-            version = '1.0.2'
+            version = '1.0.3'
             runId = $Context.RunId
             event = 'Start'
             status = 'Running'
@@ -1587,6 +1587,7 @@ function New-ItemCommit {
 function Send-ItemCommit {
     [CmdletBinding()]
     param([object] $Context, [object] $Document, [object] $State, [string] $Commit, [string] $Url, [string] $StatePath)
+    $null = Assert-PlanRepository -Context $Context -Document $Document
     if ((Get-RemoteCommit -Context $Context -Url $Url -Branch $Document.BranchRef) -cne $State.VerifiedCommit) {
         Stop-Transfer -Id 'RemoteChanged' -Message 'The remote branch changed before this push.'
     }

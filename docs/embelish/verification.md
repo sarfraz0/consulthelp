@@ -93,3 +93,20 @@ Development PTY trials initially sent synthetic passwords before 7-Zip finished 
 **Target release gate remains open:** Windows PowerShell 5.1/7-Zip console execution, native file-ID/short-name/UNC/link behavior, DACL snapshots/managed endpoint policy, interruption at each rename boundary, disk-full/access-denied/resource limits and actual intended source/recipient inventory acceptance. Linux function/native checks and static compatibility do not certify these. Publication retains a rename gap, previous trees, permission-snapshot semantics and documented metadata limits; do not treat it as a complete filesystem backup or authenticity protocol. See [operations](operations.md) and function-named [engineering exceptions](implementation-notes.md).
 
 Current implementation SHA-256: `4917af4c6a2e517aeb9db6115aefabed038597a19be4d4bb91be31388114ae03`.
+
+## Controlled shell review, 20 October 2026 — version 1.2.1
+
+Scope: interactive standard-user operation with installed dependencies and local data. No runtime installation, elevation, scheduler work, new protocol or network call was added. All verification used local synthetic files/repositories. PowerShell 7.6.6/.NET 10.0.12, 7-Zip 25.01 and PSScriptAnalyzer 1.24.0 were already available.
+
+Four focused corrections:
+
+- **Reproduced and fixed:** FromBase64Transform accepted incomplete groups (`Q`, `QQ`, `QQ=`, `QQ==A`, `QUJDRA`), silently dropping incomplete bytes. Bounded strict decoding now rejects them and data after padding, including across read buffers.
+- **Reproduced and fixed:** an initialization/protection failure left a newly created empty transaction blocking retry. That invocation's staging is now removed and its lock released; preexisting recovery data is preserved.
+- **Confirmation defect fixed:** mandatory Set-Acl inherited confirmation and could be independently skipped after business approval. Its call now explicitly disables that extra confirmation, while permission failures remain fatal. A ShouldProcess stand-in verifies the actual command with an inherited Low confirmation preference in a noninteractive test host; native Windows ACL application is NOT RUN.
+- **Static Windows path defect fixed:** stripping the separator before root validation could reinterpret `C:\` as `C:`. Root refusal now precedes trimming/native identity. A local root-refusal check confirms this ordering; Windows drive/UNC execution is NOT RUN.
+
+Current checks: **8 focused cases PASS**, **10 existing focused cases PASS**, **16 publication/permission cases PASS**, **8 native encrypted standalone cases PASS**. Valid/whitespace-wrapped bytes match native .NET conversion across buffer boundaries; malformed restore fails before native password work, releases its output handle and preserves the previous tree. Native encrypted restore checks compare file hashes, Unicode paths, empty directories, corrupt/wrong-password preservation, late collisions and retained Force backups. Parser/default/5.1 compatibility findings: **0**. The original 15 helper help entries load. Native help XML and original UTF-8/no-BOM/LF conventions are preserved.
+
+A real ordinary-user Windows PowerShell 5.1 session with the installed 7-Zip/ACL/file-identity paths is still **NOT RUN** here. Static compatibility and Linux native tests do not establish that acceptance. No broader unattended or filesystem backup certification is claimed.
+
+Reviewed implementation SHA-256: `f9dcd2f8f0af6786ad6e6a7b47c1ea9b150fa2a742f6418d1143673230f866a9`.

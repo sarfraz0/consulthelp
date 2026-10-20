@@ -106,3 +106,15 @@ Both embedded native sources compile with C# language version 5. x64 layouts mat
 **Windows release gate remains open:** real PowerShell 5.1 CLI Plan/Push/resume with no XML, supported Git for Windows and approved hooks/signing/credentials/proxy; parent-exit/inherited-pipe/grandchild timeout and Ctrl+C/hard-host termination; no surviving owned or terminated unrelated processes; job-policy refusal; disk-full/permission/state-loss interruption; UNC/ACL/cloud/linked-worktree and scheduler acceptance. Completed-resume and immutable-budget contracts remain distinct. Runtime-data custody is required if all start/checkpoint evidence is lost. See [recovery](operations.md) and [native-boundary exceptions](implementation-notes.md).
 
 Current implementation SHA-256: `402cf4925c23cad96bdbbf78c7c177c650112c1dec4e362b2e4ea909b7ceda4c`.
+
+## Controlled shell review, 20 October 2026 — version 1.0.3
+
+Scope: standard-user controlled-shell operation, local planning/data and an approved Push workflow. Git ls-remote remains permitted only within Push verification, alongside git push. No networking beyond that workflow, elevation, installation, scheduler or transport change is introduced. Tests use filesystem-only bare remotes with Git restricted to the file transport; no real remote is contacted.
+
+**Reproduced and fixed:** after creation of the exact transfer commit, changing the configured remote caused Send-ItemCommit to publish to the changed destination, then report PushUnverified while inspecting the old URL. The local reproduction confirmed that the second bare repository received the commit. Send-ItemCommit now revalidates the frozen repository, branch and configured destination before remote inspection, attempt checkpointing or push.
+
+Current focused results: **3 PASS** — changed destination leaves both local remotes at the base and does not record an attempt; changed checked-out branch refuses publication; normal local Plan has no transport commands and Push completes with verified frozen bytes. All **78 existing protocol/recovery cases PASS** using the real writer/reader and local Git transactions. Parser/default/5.1 compatibility findings: **0**. Original file encoding/newlines and help XML are preserved. Tests use the previously documented development process adapter on Linux; production Windows process ownership is unchanged by this revision.
+
+The remaining acceptance check for this scope is a real ordinary-user Windows PowerShell 5.1 Plan/Push/resume using approved installed Git, credentials and the Windows Job Object path. That is **NOT RUN** in this Linux environment. No admin access or real production data was used in the review.
+
+Reviewed implementation SHA-256: `a50c90fe321c6cd8d57462577ca5417a0b0a61bb40ba1d88fa66e4e32f868075`.

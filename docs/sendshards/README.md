@@ -2,11 +2,13 @@
 
 Plans and resumes a paced transfer of archive shards to an approved Git remote.
 
-Implementation: [`sendshards.ps1`](../../embelish/sendshards.ps1), version 1.0.2.
+Implementation: [`sendshards.ps1`](../../embelish/sendshards.ps1), version 1.0.3.
 
 Version 1.0.1 fixes all six findings from the [18 October audit](audit-2026-10-18.md). The [19 October verification](verification.md#fixes-and-relocation-verification-19-october-2026) records passing synthetic regressions and relocation checks. Target Windows execution remains unverified.
 
 **Production readiness: target acceptance pending.** Version 1.0.2 implements SS-01/SS-02 from the [20 October audit](audit-2026-10-20.md). Checkpoint-loss regressions pass; the new Windows Job Object adapter still requires real Windows/endpoint acceptance. See [current verification](verification.md).
+
+Version 1.0.3 additionally rechecks the frozen repository, branch and push destination immediately before sending a commit, including changes made during commit hooks.
 
 ## Documentation
 
@@ -20,7 +22,7 @@ Version 1.0.1 fixes all six findings from the [18 October audit](audit-2026-10-1
 
 ## Behavior and prerequisites
 
-Revision 1.0.2. One self-contained Windows PowerShell 5.1 script. Requires
+Revision 1.0.3. One self-contained Windows PowerShell 5.1 script. Requires
 Windows 10/11, installed Git for Windows 2.30 or newer, FullLanguage, and pre-provisioned credentials.
 Run as the current user. No installation, elevation, policy changes are performed. Git hooks, signing,
 credential helpers, TLS checks, and repository filters remain active.

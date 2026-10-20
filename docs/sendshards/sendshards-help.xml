@@ -8,7 +8,7 @@
       </maml:description>
     </command:details>
     <maml:description>
-      <maml:para>Revision 1.0.2. One self-contained Windows PowerShell 5.1 script. Requires
+      <maml:para>Revision 1.0.3. One self-contained Windows PowerShell 5.1 script. Requires
 Windows 10/11, installed Git for Windows 2.30 or newer, FullLanguage, and pre-provisioned credentials.
 Run as the current user. No installation, elevation, policy changes are performed. Git hooks, signing,
 credential helpers, TLS checks, and repository filters remain active.</maml:para>
@@ -66,6 +66,7 @@ Child executables: installed git.exe and its configured approved helpers/hooks;
 an in-file Windows Job Object adapter contains Git and its ordinary descendants from creation through cleanup, even after parent exit. No taskkill or uncontained fallback is used. No network contact occurs until an authorized Push.</maml:para>
       <maml:para>The script may be installed under scripts/, in a repository root or in a separate tools directory and invoked from another directory. Relative CLI paths resolve from the caller’s PowerShell filesystem location. Source data stays in its Git worktree and plan/state/logs outside it. No XML or documentation is required to execute.</maml:para>
       <maml:para>Revision 1.0.2 implements SS-01 and SS-02. Missing checkpoints with a surviving start record or exact transfer commits are refused; matching legacy checkpoints retain their original start. Keep plan/state/start records together. Git starts suspended in a kill-on-close Windows job using job-at-creation and explicit pipe inheritance. Cleanup uncertainty stops successful operations and retains primary failures. Real Windows Job Object, interruption and managed-endpoint acceptance remain NOT RUN; Linux protocol regressions use a development process-boundary adapter. See docs/sendshards/verification.md and operations.md.</maml:para>
+      <maml:para>Version 1.0.3 additionally rechecks the frozen repository, branch and push destination immediately before sending a commit, including changes made during commit hooks. Controlled use is an ordinary interactive user session with installed dependencies, local data and no concurrent repository/output writers. No elevation, installation, download or new network mechanism is added. Plan remains local; only Push contacts the configured remote using git push and git ls-remote, with approved Git helpers/hooks retained.</maml:para>
     </maml:description>
     <command:syntax>
       <command:syntaxItem>

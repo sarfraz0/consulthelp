@@ -3,9 +3,11 @@
 Protects (embelishes) or restores (deembelishes) a folder as encrypted,
 base64-encoded text shards backed by a split 7-Zip archive.
 
-Implementation: [`embelish.ps1`](../../embelish/embelish.ps1), version 1.2.0.
+Implementation: [`embelish.ps1`](../../embelish/embelish.ps1), version 1.2.1.
 
 **Production readiness: target acceptance pending.** Version 1.2.0 implements EB-01–EB-06 from the [20 October audit](audit-2026-10-20.md). Current synthetic verification and recovery instructions are recorded below; Windows PowerShell 5.1, Windows filesystem/ACL behavior and managed-endpoint acceptance remain unverified.
+
+Version 1.2.1 also rejects incomplete base64 and data after padding, cleans up newly created staging when initialization fails, makes Windows staging protection mandatory after the main confirmation, and refuses root destinations before separator normalization.
 
 ## Documentation
 
@@ -52,4 +54,4 @@ Deploy `embelish.ps1` alone with its declared PowerShell/7-Zip dependencies and 
 
 [Sendshards](../sendshards/README.md) can plan transfer of the produced shards. This Embelish revision emits no checksum manifest; Sendshards treats those sets as legacy and warns.
 
-Version 1.2.0 requires FullLanguage and installed 7-Zip. On Windows it uses built-in native file-identity APIs for alias-safe overlap checks and standard ACL cmdlets. Filesystems must support these checks and same-parent directory renames. Unix development execution requires PowerShell 7.2/.NET 6 or newer for private staging modes. No extra modules, XML, documentation or companion implementation files are required.
+Version 1.2.1 requires FullLanguage and installed 7-Zip. On Windows it uses built-in native file-identity APIs for alias-safe overlap checks and standard ACL cmdlets. Filesystems must support these checks and same-parent directory renames. Unix development execution requires PowerShell 7.2/.NET 6 or newer for private staging modes. No extra modules, XML, documentation or companion implementation files are required.

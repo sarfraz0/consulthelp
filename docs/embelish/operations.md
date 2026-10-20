@@ -57,3 +57,13 @@ The password prompt belongs to the native 7-Zip process. PowerShell's `-NonInter
 The JSONL logger now allowlists typed operational fields and stable error categories/line numbers. Source paths/names, arbitrary fields and raw exception messages are omitted, including logging-failure warnings. Summary results deliberately still contain source, destination, executable, log and backup paths. Native 7-Zip console diagnostics can contain filenames. Review console captures and result objects before sharing.
 
 Contiguous names do not prove that all final volumes arrived, nor that every intended source entry was captured. The producer still emits no checksum/source-inventory manifest. Successful native extraction plus an expected file/hash inventory is the recipient acceptance check. Archives must come from a trusted sender; this tool is not a sandbox or separate authenticity verifier. Windows console, endpoint, resource-exhaustion and abrupt-termination acceptance remain pending.
+
+## Controlled shell corrections, version 1.2.1
+
+Use an ordinary interactive shell with installed PowerShell/7-Zip, local source/output/log paths and no concurrent writers. No administrator rights, runtime installation or network API are required; the script does not enforce network policy on the host or on user-supplied paths. XML remains optional. This review adds no unattended workflow or new credential handling.
+
+Decoding now requires complete base64 groups and terminal padding, including across read-buffer boundaries. Standard space/tab/CR/LF wrapping is accepted. Previously the streaming transform could silently discard incomplete final characters. Malformed text now fails before 7-Zip/password work, retains existing destination bytes and closes the owned decoded file before staging cleanup. Memory remains bounded.
+
+If protection or directory initialization fails before native work starts, only the transaction created by that invocation is cleaned up and its lock released. A transaction that already existed is retained for recovery. Windows Set-Acl runs without a second independent confirmation after the main operation has been approved; permission/policy errors still stop the operation. This prevents skipped protection from being treated as successful initialization.
+
+A drive/filesystem root is refused before removing a trailing separator. On Windows, trimming `C:\` first can change its meaning to drive-relative `C:`; root validation must not resolve that as a different output directory. Drive-qualified ordinary folders and caller-relative paths retain their existing behavior.
