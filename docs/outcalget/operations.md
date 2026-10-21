@@ -4,6 +4,8 @@
 
 ## Required Task Scheduler Settings
 
+The action below schedules **export only**. To include the calendar commit and push, schedule `update-calendar.ps1` using [the wrapper setup and monitoring instructions](scheduling.md). Its record covers the complete update; an exporter record alone cannot confirm Git publication.
+
 Create one task per export profile when you want calendars to run concurrently.
 General: configured ordinary user; Run only when user is logged on; Run with highest
 privileges OFF. Do not use SYSTEM, Password/S4U or Run whether user is logged on or not.

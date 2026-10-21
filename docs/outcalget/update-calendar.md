@@ -1,57 +1,62 @@
 # Calendar Git update helper
 
-[Documentation index](README.md)
+[Documentation index](README.md) · [Task Scheduler setup and monitoring](scheduling.md)
 
-Implementation: [`update-calendar.ps1`](../../outcalget/update-calendar.ps1). Optional [native help](update-calendar-help.xml).
+Implementation: [`update-calendar.ps1`](../../outcalget/update-calendar.ps1). Update run-record version: 1.1.0. Optional [native help](update-calendar-help.xml).
 
-## Location and prerequisites
+## Deployment and prerequisites
 
-The wrapper can live in a repository root, a `scripts/` subdirectory, or an independent tools directory, and can be invoked from any current directory. It never changes the caller’s PowerShell location. By default it requires `outcalget.ps1` beside it; `-ExporterPath` selects a nonadjacent exporter. Neither script requires Markdown, XML help or agent instructions to execute.
+Run the wrapper from any current directory, with the pair at a repository root, under `scripts/`, or in an independent tools directory. It never changes the caller's location. `outcalget.ps1` must be beside it unless selected with `-ExporterPath`. Markdown, XML and agent files are optional runtime documentation.
 
-Requires Windows PowerShell 5.1 (`powershell.exe`), installed Git, the exporter’s declared Windows/Outlook dependencies and an existing export configuration. The configured output must be inside a Git working tree whose current branch has an approved upstream/push destination and authentication. The wrapper does not configure Outlook, create a repository, choose a new remote or provision credentials.
+Requires Windows PowerShell 5.1, Git on the task user's PATH, Outlook Classic and an existing account-bound exporter configuration. Use the ordinary configured Windows user, logged on in the same desktop session. Logged-off/SYSTEM/service automation is unsupported. PowerShell `-NonInteractive` cannot suppress Office sign-in or security dialogs. No elevation, installation, policy bypass or security-control changes are performed.
 
-The exporter’s successful `-Json` result selects the actual absolute output file. There is no assumption that it is named `calendar.ics`, beside the scripts, or in the current directory. Existing default configuration is used if neither `-Config` nor `-Profile` is supplied. `-Profile` names a saved export configuration, not an Outlook MAPI profile. Missing/invalid configurations fail through the exporter without fallback or setup prompting.
-
-```powershell
-# These commands can be invoked from an unrelated directory.
-powershell.exe -NoLogo -NoProfile -File "C:\repo\scripts\update-calendar.ps1"
-powershell.exe -NoLogo -NoProfile -File "C:\repo\scripts\update-calendar.ps1" -Profile team
-powershell.exe -NoLogo -NoProfile -File "C:\Tools\update-calendar.ps1" -ExporterPath "C:\OtherTools\outcalget.ps1" -Config "C:\PrivateState\config.json"
-```
-
-`-ExporterPath` and `-Config` accept absolute paths or paths relative to the caller’s current PowerShell filesystem location. The wrapper makes a relative configuration path absolute before invoking the exporter. `-Config` and `-Profile` are mutually exclusive. The exporter’s saved output and account-bound configuration do not move when the scripts move.
-
-## Export, commit and failure behavior
-
-The wrapper announces the Outlook export before launching the child and reports the published output path after it validates success. It invokes the exporter with `-STA`, `-NonInteractive` and `-Json`, checks both process status and the published-result envelope, then finds the Git worktree containing that output. The JSON mode suppresses the child’s individual phase messages; a quiet interval after the start message means the wrapper is waiting for the exporter. `-Verbose` shows the resolved exporter path. It uses `git -C` and a literal single-file pathspec to stage and commit only that calendar. An unchanged calendar produces no commit or push. Unrelated staged files remain staged. Native hooks, signing and the repository’s configured `git push` behavior remain active.
-
-The previous calendar is never pre-deleted. The exporter retains its own atomic-publication/recovery protections. If export fails, the wrapper performs no staging, commit or push; inspect the exporter’s run record if it reports publication before a later failure. A missing/invalid successful result also prevents Git work. Handled exporter failures display the exporter’s error code/message and run-record path when provided; warnings are surfaced. If the exporter reports publication before a later failure, the wrapper calls that out and stops before Git work. Malformed/raw child output is not echoed. If output is outside any Git repository, the export may already have completed, but no Git publication follows. Git failures can leave the calendar staged or a commit local; a push failure explicitly reports that the commit remains local. Errors exit 1; success/preview exits 0.
-
-`-WhatIf` or declined `-Confirm` skips export and Git mutations and prints an explicit skipped message. Dependency/path resolution can still run; preview does not establish Outlook access or remote readiness.
+The exporter returns the actual absolute published calendar path. That file must belong to an existing Git worktree on a branch with one approved upstream remote/branch and one push URL. Existing Git identity, signing, hooks, authentication, proxy and TLS controls must already work without prompts. Use a dedicated calendar branch/worktree where practical. Do not run other Git commands or direct exports to the same output during an update.
 
 ```powershell
-powershell.exe -NoLogo -NoProfile -File "C:\repo\scripts\update-calendar.ps1" -WhatIf
+powershell.exe -NoLogo -NoProfile -NonInteractive -STA -File "C:\repo\scripts\update-calendar.ps1" -Scheduled
+powershell.exe -NoLogo -NoProfile -NonInteractive -STA -File "C:\repo\scripts\update-calendar.ps1" -Scheduled -Profile team -Debug
+powershell.exe -NoLogo -NoProfile -NonInteractive -STA -File "C:\Tools\update-calendar.ps1" -ExporterPath "C:\OtherTools\outcalget.ps1" -Config "C:\PrivateState\config.json"
 ```
 
-## Implementation and verification, 19 October 2026
+## Parameters
 
-`Get-PublishedCalendarPath` validates the successful exporter envelope and existing absolute output path. The child host’s XML transport preserves the JSON string, including Unicode paths, across the native PowerShell boundary. `Get-CalendarRepository` uses Git’s ASCII parent-directory result (`rev-parse --show-cdup`) with the already-known calendar directory; it avoids interpreting a Unicode root path through a legacy console code page. All Git file operations use `--literal-pathspecs`. Public ShouldProcess covers the complete export/commit/push operation.
+| Parameter | Meaning |
+|---|---|
+| `-ExporterPath` | Defaults to adjacent `outcalget.ps1`; relative paths resolve from the caller's filesystem location. |
+| `-Config` | Explicit exporter configuration, resolved from the caller's filesystem location and passed as an absolute path. Mutually exclusive with Profile. |
+| `-Profile` / `-ExportProfile` | Saved export configuration name, not an Outlook MAPI profile. Omit both selectors for the existing default configuration. |
+| `-Scheduled` | Marks the wrapper record and forwards Scheduled to the exporter; does not register a task. |
+| `-LogDirectory` | Wrapper records only. Default: `%LOCALAPPDATA%\osp\consulthelp\update-calendar\logs`. Relative paths follow the caller. Does not relocate exporter records/configuration or the update lock/recovery marker. |
+| `-GitTimeoutSeconds` | Per Git process wait, default 120, range 15–1800 seconds, plus up to two seconds for redirected stream completion. Does not change export/Outlook budgets. |
+| `-Debug` | Non-prompting wrapper diagnostics and exporter Debug; same business operation. |
+| `-WhatIf`, `-Confirm` | Native approval for the complete operation; preview or decline skips export, logs, locks and Git. |
 
-**PASS:** synthetic calendar fixture families for scripts at the repository root, under `scripts/`, and outside the repository, invoked from an unrelated PowerShell location and process directory. These exercise actual local Git staging, commit and push against filesystem-only bare remotes, Unicode/spaces/brackets in the output path, unchanged output, preservation of unrelated staged files and caller location, failed export, malformed/missing/unpublished results, WhatIf, a nonadjacent exporter and relative explicit config/profile forwarding. Additional fixtures verify commit-hook refusal, rejected push with the commit retained locally, a calendar directly at the repository root, and refusal of a calendar outside a repository. Native help works with and without XML. Parser/default plus Windows PowerShell 5.1 syntax/command/type analysis has zero findings.
+Missing named profiles fail through the exporter without a default fallback or interactive setup. Detailed help is optional; `Get-Help -Full` falls back to generated syntax without XML.
 
-The fixture replaces only the Outlook/export process boundary with a synthetic exporter and a local `powershell.exe` adapter that delegates to PowerShell 7.6.6 while omitting Linux’s unsupported `-STA`. No production test switch or dependency was added. `GIT_ALLOW_PROTOCOL=file` restricted Git transport. No real calendar or external destination was used. **NOT RUN:** Windows PowerShell 5.1/Outlook/Git-for-Windows, real signing/credentials/remote protection, Task Scheduler and endpoint acceptance. These Linux fixtures establish the tested path and Git behavior, not Windows business acceptance.
+## Export, commit and push
 
-## Troubleshooting an apparently skipped export
+The wrapper initializes a required run record and acquires an exclusive per-user update handle before export. All wrapper updates under that user are serialized by refusal, including different tasks/configurations. The persistent `update.lock` file is harmless after its handle is released. Stagger multiple tasks. The exporter's own concurrency, locks and recovery rules remain intact for direct exporter use.
 
-With both scripts in `scripts/`, invoke `.\scripts\update-calendar.ps1` from the repository root. The adjacent exporter is selected by `$PSScriptRoot`; the current directory does not select a different exporter. The default saved configuration is used unless you specify `-Profile` or `-Config`.
+The wrapper announces export, starts the child with NoProfile/NonInteractive/STA and Json, then validates both its process exit and published-result envelope. Scheduled and Debug are forwarded when selected. JSON mode suppresses individual child phases. Warnings, safe handled exporter errors and its run-record location remain visible. Failure or malformed output prevents all Git work; publication followed by a later exporter failure is disclosed. The previous calendar is never pre-deleted.
 
-Expected wrapper messages are “Starting Outlook calendar export”, then “Outlook calendar export completed” and the actual output path, followed by the Git outcome. “Calendar unchanged” means the successful exporter result was validated and Git found no staged content difference. It does not mean the export was skipped. An already-open Outlook session is reused and may show no visible UI activity. “Calendar update skipped” means ShouldProcess declined or previewed the operation; no child export was launched.
+Before staging, the wrapper rejects unresolved Git operations, unmerged index entries, detached/missing/ambiguous upstream configuration, mirror remotes, conflicting push remote/refspec overrides and ambiguous push URLs. Alternate Git directory/index/object/namespace environment overrides fail before export. The push endpoint is inspected with `ls-remote` as part of this push workflow; no fetch, pull, merge, remote creation or credential provisioning is performed. The remote tip must exist locally and be an ancestor of HEAD. Pending commits may change only this calendar and must have linear history; other unpublished content requires manual repository maintenance.
 
-To see the exporter’s own phases and error directly, run an export without the Git wrapper:
+Only the literal calendar file is staged and committed (`commit --only`); unrelated staged files stay staged. A changed calendar gets an `Update calendar` commit. Unchanged output creates no commit. A pending calendar-only commit is still pushed after an unchanged export, fixing retries following rejected pushes. A synchronized unchanged export succeeds after confirming the remote tip.
 
-```powershell
-powershell.exe -NoLogo -NoProfile -STA -File .\scripts\outcalget.ps1
-# If you normally use a named configuration, append -Profile team.
-```
+Push names the approved upstream remote and explicit commit/branch refspec, with tags and submodule pushes excluded. A conflicting push-remote override or different/multiple explicit push refspecs is refused instead of silently selecting another destination. This intentionally narrows the old bare `git push` behavior; review the existing upstream as the intended task destination. The branch and destination are rechecked before push; hooks, commit signing, remote-specific credentials/proxy settings, TLS validation and server protections remain active. The remote tip is inspected again before recording confirmed success. Separate fetch/push URLs are supported; the read-only query temporarily selects the resolved push URL without modifying saved configuration.
 
-A successful run reports the actual output path and run-record location. Review that output locally; share only error codes/messages, with private paths omitted. Avoid treating the absence of a new Outlook window as proof that no export occurred.
+Git stdin is closed and child-only `GIT_TERMINAL_PROMPT=0` / `GCM_INTERACTIVE=Never` prevent Git/GCM credential prompts. Other signing/SSH/hook dialogs may still occur and must be provisioned in advance; they share the Git wait limit. Raw Git stdout/stderr are drained concurrently and never printed or retained in the run record. Controlled, reviewed native helpers are assumed; their redirected output is buffered in memory and is not a hostile-output memory sandbox.
+
+## Outcomes, logs and recovery
+
+Success/preview exits 0; handled failure exits 1. Host parse/binding/signing/policy refusal can precede the script's logging and exit mapping. Export failure does not stage/commit/push. Git failure can leave the new calendar published, staged, or committed locally; the log distinguishes these phases. A rejected push retains the commit. After the remote refusal is resolved, rerunning exports again and pushes pending calendar-only commits even when output is unchanged.
+
+Normal and Debug runs use the same unique UTF-8 JSON record, checkpointed before later mutations and finalized on handled completion. Fields include UTC times, stage, completion/outcome/exit code, exporter run ID and exit/publication flags, calendar-change/commit flags, commit hash, push/remote confirmation, Git exit status, uncertainty/recovery flags and stable error code. Debug adds PowerShell version, script hash when available and failure exception type. No calendar contents, profile names, remote URLs, mailbox identities, paths, raw exceptions or raw native output are logged. Files inherit the chosen directory's permissions; choose an approved user-private log directory. Best-effort retention keeps at most 200 older records plus the current run, and removes closed records older than 14 days; active/inaccessible files are preserved with warnings.
+
+Each Git command has a `git-recovery.pending` marker under `%LOCALAPPDATA%\osp\consulthelp\update-calendar`. Normal native completion clears it, including ordinary refusals. Timeout, interrupted work or unclosed pipes retain it and block subsequent wrapper runs before export. Only the exact started Git process may be stopped on timeout; descendants are not claimed stopped. Disable the task, let/reconcile native Git, hook, credential and signing work finish, inspect the correlated record and repository/remote, then remove only that reviewed marker. A Git-owned index lock or recovery state must be reviewed separately; never delete an active lock. Do not automatically clear markers, reset commits, force push, disable hooks/signing or change TLS/proxy/security controls.
+
+A missing, incomplete, unreadable or stale record means UNKNOWN. Cancellation/hard termination does not guarantee finally/cleanup or a nonzero Windows host status. Completion logging failure returns failure even if export/push already succeeded. Correlate the current wrapper record, Task Scheduler result and exporter record; an old ICS timestamp or successful exporter record alone cannot confirm a full update. See [scheduling and monitoring](scheduling.md) for commands and acceptance checks.
+
+## Verification
+
+The [21 October 2026 verification](verification.md#scheduled-update-audit-21-october-2026) records local synthetic regression and scheduling checks separately from actual Windows/Outlook acceptance. No real calendar, external remote or registered task was used. Exporter version 0.3.5 and its implementation are unchanged.

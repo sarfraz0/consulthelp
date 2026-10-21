@@ -9,11 +9,14 @@ Implementation: [`outcalget.ps1`](../../outcalget/outcalget.ps1), version 0.3.5.
 - [Parameters, examples, results and exit codes](usage.md)
 - [Scheduling, configuration, synchronization and recovery](operations.md)
 - [Calendar Git update helper](update-calendar.md)
+- [Schedule and monitor the complete export/commit/push update](scheduling.md)
 - [Implementation rationale and existing exceptions](implementation-notes.md)
 - [Historical verification and this extraction](verification.md)
 - [Native PowerShell help](outcalget-help.xml)
 
 ## Behavior and prerequisites
+
+For an update that includes committing and pushing the exported file, schedule `update-calendar.ps1` using the [complete task instructions](scheduling.md). Scheduling `outcalget.ps1` alone exports only. Both require the configured ordinary user to remain logged on in the Windows desktop session.
 
 outcalget 0.3.5. One Windows PowerShell 5.1 file; no administrator rights, runtime
 modules/downloads, Graph permissions, endpoint exclusions or policy bypass.

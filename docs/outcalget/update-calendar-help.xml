@@ -4,16 +4,19 @@
     <command:details>
       <command:name>update-calendar.ps1</command:name>
       <maml:description>
-        <maml:para>Exports the configured calendar and commits/pushes only its published output if changed.</maml:para>
+        <maml:para>Exports the configured calendar, commits changed output and confirms upstream publication, including pending calendar commits.</maml:para>
       </maml:description>
     </command:details>
     <maml:description>
-      <maml:para>Requires Windows PowerShell 5.1, Git, the configured outcalget.ps1 exporter and its Windows/Outlook dependencies, and an approved existing repository/upstream for the output. The exporter is adjacent by default; -ExporterPath selects another location.</maml:para>
-      <maml:para>The wrapper can live under scripts/, in the repository root or outside the repository, and runs from any caller directory. It never changes location. It obtains the actual absolute outputPath from a successful -Json export and discovers the Git worktree containing that file. It does not pre-delete the previous output.</maml:para>
-      <maml:para>Relative ExporterPath and Config values resolve from the caller’s current PowerShell filesystem location. Use Config or Profile, or omit both to use the existing default exporter configuration. Profile names an export configuration, not an Outlook MAPI profile.</maml:para>
-      <maml:para>Only the literal calendar path is staged/committed. Unrelated staged changes remain staged. Native hooks, signing and configured git push behavior remain active; a push failure leaves the commit local. WhatIf and declined confirmation skip export and all Git mutations. Exit 1 reports failure; success or preview exits 0. XML help is optional.</maml:para>
-      <maml:para>The wrapper announces Outlook export before waiting for the child, reports the published output path after success validation, and displays the run-record location, structured warnings and handled exporter error code/message when supplied. It reports a skipped WhatIf/declined operation explicitly. Individual child phase messages remain suppressed by -Json; -Verbose identifies the exporter path. A publication followed by failure is disclosed and stops Git work.</maml:para>
-      <maml:para>Calendar unchanged means a successful export was validated and Git found no content change. An already-open Outlook session may show no visible UI activity. To inspect native exporter phases/errors directly, run powershell.exe -NoLogo -NoProfile -STA -File .\scripts\outcalget.ps1, adding the same Profile or Config selection if applicable.</maml:para>
+      <maml:para>Requires Windows PowerShell 5.1, Git, adjacent outcalget.ps1 (or ExporterPath), its Outlook Classic dependencies and existing export configuration. Use the same ordinary logged-on Windows desktop user; logged-off/SYSTEM/service execution is unsupported. Documentation/XML are optional runtime data.</maml:para>
+      <maml:para>Runs from any caller directory; script pairs can live under scripts/, at the repository root or outside it. ExporterPath and Config resolve relative to the caller. Config and Profile are mutually exclusive; omission uses the existing default configuration. Profile is an export configuration, not an Outlook MAPI profile.</maml:para>
+      <maml:para>Initializes a required per-run JSON record and exclusive per-user update handle before export. Announces the child export, validates its exit and published JSON result, displays safe warnings/errors and its record location, and never pre-deletes the previous calendar. Failed or malformed exports prevent Git work.</maml:para>
+      <maml:para>Stages and commits only the literal published calendar, preserving unrelated staged changes. Requires one approved upstream branch and push URL, no unfinished Git operation and no unrelated unpublished commits. An unchanged re-export still pushes pending calendar-only commits after a previous rejected push. The remote is inspected only within this push workflow; no fetch/pull/merge is performed.</maml:para>
+      <maml:para>Push explicitly targets the approved upstream branch, excluding tags and submodules; conflicting push remote/refspec overrides are refused. Rechecks branch/destination and confirms the remote tip. Hooks, signing, remote-specific credentials/proxy settings, TLS and server controls remain active. Mirror/ambiguous remotes and alternate Git directory/index/object/namespace environments are refused.</maml:para>
+      <maml:para>Git stdin is closed with child-only GIT_TERMINAL_PROMPT=0 and GCM_INTERACTIVE=Never. Git waits are bounded by GitTimeoutSeconds; raw native output is drained without display/log retention. Native helper dialogs still require prior provisioning. A timed-out command may leave child work active; a retained git-recovery.pending marker blocks later updates before export until reviewed.</maml:para>
+      <maml:para>Normal and Debug runs checkpoint wrapper records under LOCALAPPDATA/osp/consulthelp/update-calendar/logs by default. Records correlate the exporter run ID with Git/commit/remote outcome without calendar content, identities, paths, URLs or raw native output. Debug adds non-prompting wrapper diagnostics and is forwarded to outcalget. Retention attempts 200 older records plus the current run and 14 days; active/inaccessible records are preserved. Use an approved user-private directory.</maml:para>
+      <maml:para>Scheduled forwards scheduled metadata without creating a task. Configure Task Scheduler with Run only when user is logged on, highest privileges off, no overlapping instance or automatic failure retry, absolute paths and an explicit Start in directory. Use powershell.exe -NoLogo -NoProfile -NonInteractive -STA -File with this script. NonInteractive cannot suppress Office dialogs. Do not use redirects or policy-bypass options.</maml:para>
+      <maml:para>Exit 0 means success/preview; handled failures exit 1. WhatIf/declined confirmation skip all mutations, including logs. Success requires a current completed/success/exitCode=0 record with exportPublished and remoteConfirmed true, recoveryRequired false, and Scheduler 0x0. An exporter success or old ICS alone is insufficient. Missing/incomplete completion means UNKNOWN; pre-start policy/binding failures may have no record. See docs/outcalget/scheduling.md for setup, monitoring and marker recovery.</maml:para>
     </maml:description>
     <command:syntax>
       <command:syntaxItem>
@@ -26,6 +29,18 @@
           <maml:name>Config</maml:name>
           <command:parameterValue required="true">String</command:parameterValue>
         </command:parameter>
+        <command:parameter required="false" position="named">
+          <maml:name>Scheduled</maml:name>
+          <command:parameterValue required="false">SwitchParameter</command:parameterValue>
+        </command:parameter>
+        <command:parameter required="false" position="named">
+          <maml:name>LogDirectory</maml:name>
+          <command:parameterValue required="true">String</command:parameterValue>
+        </command:parameter>
+        <command:parameter required="false" position="named">
+          <maml:name>GitTimeoutSeconds</maml:name>
+          <command:parameterValue required="true">Int32</command:parameterValue>
+        </command:parameter>
       </command:syntaxItem>
       <command:syntaxItem>
         <maml:name>update-calendar.ps1</maml:name>
@@ -36,6 +51,18 @@
         <command:parameter required="false" position="named">
           <maml:name>ExportProfile</maml:name>
           <command:parameterValue required="true">String</command:parameterValue>
+        </command:parameter>
+        <command:parameter required="false" position="named">
+          <maml:name>Scheduled</maml:name>
+          <command:parameterValue required="false">SwitchParameter</command:parameterValue>
+        </command:parameter>
+        <command:parameter required="false" position="named">
+          <maml:name>LogDirectory</maml:name>
+          <command:parameterValue required="true">String</command:parameterValue>
+        </command:parameter>
+        <command:parameter required="false" position="named">
+          <maml:name>GitTimeoutSeconds</maml:name>
+          <command:parameterValue required="true">Int32</command:parameterValue>
         </command:parameter>
       </command:syntaxItem>
     </command:syntax>
@@ -71,11 +98,43 @@
           <maml:name>String</maml:name>
         </dev:type>
       </command:parameter>
+      <command:parameter required="false" position="named" pipelineInput="false" globbing="false">
+        <maml:name>Scheduled</maml:name>
+        <maml:description>
+          <maml:para>Marks wrapper/exporter run metadata; never registers a task.</maml:para>
+        </maml:description>
+        <command:parameterValue required="false">SwitchParameter</command:parameterValue>
+        <dev:type>
+          <maml:name>SwitchParameter</maml:name>
+        </dev:type>
+      </command:parameter>
+      <command:parameter required="false" position="named" pipelineInput="false" globbing="false">
+        <maml:name>LogDirectory</maml:name>
+        <maml:description>
+          <maml:para>Wrapper log directory only; inherits directory permissions. Does not relocate exporter records, configuration, update lock or recovery marker. Relative paths resolve from the caller.</maml:para>
+        </maml:description>
+        <command:parameterValue required="true">String</command:parameterValue>
+        <dev:type>
+          <maml:name>String</maml:name>
+        </dev:type>
+        <dev:defaultValue>LOCALAPPDATA/osp/consulthelp/update-calendar/logs</dev:defaultValue>
+      </command:parameter>
+      <command:parameter required="false" position="named" pipelineInput="false" globbing="false">
+        <maml:name>GitTimeoutSeconds</maml:name>
+        <maml:description>
+          <maml:para>Per Git process wait in seconds, range 15-1800; default 120, plus up to two seconds for stream completion. Timeout can require native-work review. Does not change export budgets.</maml:para>
+        </maml:description>
+        <command:parameterValue required="true">Int32</command:parameterValue>
+        <dev:type>
+          <maml:name>Int32</maml:name>
+        </dev:type>
+        <dev:defaultValue>120</dev:defaultValue>
+      </command:parameter>
     </command:parameters>
     <command:examples>
       <command:example>
         <maml:title>Example 1</maml:title>
-        <dev:code>powershell.exe -NoLogo -NoProfile -File "C:\repo\scripts\update-calendar.ps1" -Profile team</dev:code>
+        <dev:code>powershell.exe -NoLogo -NoProfile -NonInteractive -STA -File "C:\repo\scripts\update-calendar.ps1" -Scheduled -Profile team -Debug</dev:code>
         <dev:remarks />
       </command:example>
     </command:examples>
