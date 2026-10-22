@@ -2,7 +2,7 @@
 
 Exports configured Outlook Classic calendars, with named configurations and coordinated concurrent runs.
 
-Implementation: [`outcalget.ps1`](../../outcalget/outcalget.ps1), version 0.3.5.
+Implementation: [`outcalget.ps1`](../../outcalget/outcalget.ps1), version 0.3.6.
 
 ## Documentation
 
@@ -18,11 +18,13 @@ Implementation: [`outcalget.ps1`](../../outcalget/outcalget.ps1), version 0.3.5.
 
 For an update that includes committing and pushing the exported file, schedule `update-calendar.ps1` using the [complete task instructions](scheduling.md). Scheduling `outcalget.ps1` alone exports only. Both require the configured ordinary user to remain logged on in the Windows desktop session.
 
-outcalget 0.3.5. One Windows PowerShell 5.1 file; no administrator rights, runtime
+outcalget 0.3.6. One Windows PowerShell 5.1 file; no administrator rights, runtime
 modules/downloads, Graph permissions, endpoint exclusions or policy bypass.
 The native Outlook exporter preserves Full details, today through today + 29 LOCAL
 calendar dates inclusive, unrestricted working hours and saved privacy/attachment
-choices. Private details and attachments default to off during new setup.
+choices. Read-back verification checks the requested native dates before saving.
+Recurring-series DTSTART values can precede that window; see [date-window semantics](usage.md#date-window-and-recurring-events).
+Private details and attachments default to off during new setup.
 Existing schema-1 configurations from 0.1.x and 0.2.0 are accepted unchanged.
 
 No -Profile means the existing default config.json. -Profile default selects that
@@ -56,6 +58,8 @@ Classic is already open by the user, the helper attaches, performs no explicit s
 and leaves it open. Otherwise it starts the machine-registered Classic installation
 in the saved MAPI profile for configured exports; interactive setup uses normal Outlook
 startup/default-profile behavior and can display its usual profile/sign-in dialogs.
+Scheduled startup adds a best-effort owned-session minimization attempt; existing user sessions
+are never minimized. Outlook dialogs/window flashes cannot be ruled out; see [startup visibility](operations.md#startup-visibility).
 The helper waits for native readiness/online Exchange/group sync and requests normal
 Quit only for the exact process it started. Other exports can join
 that process. The creator waits for all joined usage leases before closing it; joined
@@ -83,3 +87,9 @@ Markdown is the editable documentation; update the corresponding external XML he
 - https://learn.microsoft.com/en-us/office/vba/api/outlook.navigationfolder.folder
 - https://learn.microsoft.com/en-us/office/vba/api/outlook.namespace.logon
 - https://learn.microsoft.com/en-us/windows/win32/taskschd/taskschedulerschema-logontype-principaltype-element
+
+- https://learn.microsoft.com/en-us/office/vba/api/outlook.calendarsharing.startdate
+- https://learn.microsoft.com/en-us/office/vba/api/outlook.calendarsharing.enddate
+- https://learn.microsoft.com/en-us/office/vba/api/outlook.explorer.windowstate
+- https://learn.microsoft.com/en-us/office/vba/api/outlook.olwindowstate
+- https://www.rfc-editor.org/rfc/rfc5545#section-3.8.5.3

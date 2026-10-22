@@ -8,7 +8,7 @@
       </maml:description>
     </command:details>
     <maml:description>
-      <maml:para>outcalget 0.3.5. One Windows PowerShell 5.1 file; no administrator rights, runtime
+      <maml:para>outcalget 0.3.6. One Windows PowerShell 5.1 file; no administrator rights, runtime
 modules/downloads, Graph permissions, endpoint exclusions or policy bypass.
 The native Outlook exporter preserves Full details, today through today + 29 LOCAL
 calendar dates inclusive, unrestricted working hours and saved privacy/attachment
@@ -109,6 +109,9 @@ is left open and recovery is required. One Outlook instance supports one MAPI pr
 concurrent export profiles must use that same currently running Outlook MAPI profile.
 Install the same current script for all tasks. Upgrade only with no helper running;
 do not run older copies concurrently, since they do not implement these leases.</maml:para>
+      <maml:para>DATE WINDOW AND RECURRENCE (0.3.6): The run captures its local startup date through date + 29 inclusive: 22 October 2026 requests 22 October through 20 November 2026. IncludeWholeCalendar is false and native StartDate/EndDate are read back before SaveAsICal; mismatch fails with EXPORT_RANGE_MISMATCH, exit 4, before output replacement. A recurring VEVENT may retain its original September DTSTART and RRULE. That alone does not prove a wrong request. Native series/exceptions are preserved without flattening or clipping; importing a retained rule can yield occurrences outside the selected dates. Normal records and Json expose rangeStartDate, rangeEndDate and timeZoneId. See docs/outcalget/usage.md for inspecting date-only evidence privately.</maml:para>
+      <maml:para>STARTUP VISIBILITY (0.3.6): The launcher requests minimized Outlook. Scheduled additionally attempts Explorer.WindowState=olMinimized once for the exact newly started session during readiness; update-calendar forwards Scheduled. Existing/joined/user-active sessions are untouched and no Explorer is created. No periodic minimization or Office dialog suppression is performed. Record/Json outlookStartupWindow is not_requested, minimized, not_available, user_activity or unavailable; unavailable warns with OUTLOOK_MINIMIZE_UNAVAILABLE and export continues. Outlook can still flash or activate windows through native startup/add-ins/sign-in/security dialogs. PowerShell WindowStyle Hidden does not hide those dialogs. Windows focus behavior remains subject to target acceptance; see docs/outcalget/operations.md.</maml:para>
+      <maml:para>22 OCTOBER VERIFICATION: Synthetic date/read-back, recurrence preservation, owned startup/user-activity/lease guards, worker gating and normal-record checks pass on Linux PowerShell tooling. Actual Windows Outlook recurrence serialization, window focus/minimization, Exchange and Task Scheduler acceptance are NOT RUN here. The reported ICS itself has not been inspected.</maml:para>
     </maml:description>
     <command:syntax>
       <command:syntaxItem>
@@ -339,7 +342,7 @@ not change it. Do not combine with WhatIf/Confirm, whose host output can corrupt
       <command:parameter required="false" position="named" pipelineInput="false" globbing="false">
         <maml:name>Version</maml:name>
         <maml:description>
-          <maml:para>Prints 0.3.5 without Outlook access or run records.</maml:para>
+          <maml:para>Prints 0.3.6 without Outlook access or run records.</maml:para>
         </maml:description>
         <dev:type>
           <maml:name>SwitchParameter</maml:name>

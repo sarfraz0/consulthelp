@@ -44,7 +44,7 @@ Set-StrictMode -Version 3.0
 $ErrorActionPreference = 'Stop'
 
 $script:ToolName = 'embelish'
-$script:ToolVersion = '1.2.1'
+$script:ToolVersion = '1.2.2'
 $script:RunId = [guid]::NewGuid().ToString('N').Substring(0, 12)
 $script:LogPath = $null
 $script:DebugEnabled = $false
@@ -98,6 +98,9 @@ function Write-DiagnosticEvent {
         }
         if ($Data.ContainsKey('errorKind') -and $Data.errorKind -cin @('Input', 'Operational', 'Unexpected')) {
             $record['errorKind'] = $Data.errorKind
+        }
+        if ($Data.ContainsKey('hresult') -and $Data.hresult -is [string] -and $Data.hresult -cmatch '\A0x[0-9A-F]{8}\z') {
+            $record['hresult'] = $Data.hresult
         }
         foreach ($key in @('succeeded', 'whatIf')) {
             if ($Data.ContainsKey($key) -and $Data[$key] -is [bool]) {
@@ -628,7 +631,25 @@ function Set-OutputAccess {
             $security.SetSecurityDescriptorSddlForm($original.GetSecurityDescriptorSddlForm('Access'), 'Access')
             $security.SetAccessRuleProtection($true, $true)
         }
-        Set-Acl -LiteralPath $Path -AclObject $security -Confirm:$false -ErrorAction Stop
+        if ($PSVersionTable.PSEdition -eq 'Desktop') {
+            if ($item.PSIsContainer) {
+                [System.IO.Directory]::SetAccessControl($item.FullName, $security)
+            } else {
+                [System.IO.File]::SetAccessControl($item.FullName, $security)
+            }
+        } else {
+            $extensions = 'System.IO.FileSystemAclExtensions' -as [type]
+            if ($null -eq $extensions) {
+                throw [System.InvalidOperationException]::new('The current Windows runtime cannot apply filesystem access rules.')
+            }
+            $itemObject = $item.PSObject.BaseObject
+            $securityObject = $security.PSObject.BaseObject
+            $setter = $extensions.GetMethod('SetAccessControl', [type[]]@($itemObject.GetType(), $securityObject.GetType()))
+            if ($null -eq $setter) {
+                throw [System.InvalidOperationException]::new('The current Windows runtime cannot apply this filesystem access descriptor.')
+            }
+            $null = $setter.Invoke($null, [object[]]@($itemObject, $securityObject))
+        }
         return
     }
     $getter = [System.IO.File].GetMethod('GetUnixFileMode', [type[]]@([string]))
@@ -973,9 +994,10 @@ try {
 } catch {
     $code = Resolve-ExitCodeFromError -ErrorRecord $_
     $kind = switch ($code) { 2 { 'Input' } 3 { 'Operational' } default { 'Unexpected' } }
-    Write-DiagnosticEvent -Stage 'run.error' -Level 'error' -Data @{ exitCode = $code; errorKind = $kind; line = $_.InvocationInfo.ScriptLineNumber }
+    $hresult = '0x{0:X8}' -f $_.Exception.GetBaseException().HResult
+    Write-DiagnosticEvent -Stage 'run.error' -Level 'error' -Data @{ exitCode = $code; errorKind = $kind; line = $_.InvocationInfo.ScriptLineNumber; hresult = $hresult }
 
     $ErrorActionPreference = 'Continue'
-    Write-Error -Message ('Embelish failed (exit ' + $code + '). Previous output and retained recovery data must be inspected before retrying. Native 7-Zip diagnostics, if any, appear above.') -ErrorId ('Embelish' + $kind) -Category OperationStopped
+    Write-Error -Message ('Embelish failed (exit ' + $code + ', HRESULT ' + $hresult + '). Previous output and retained recovery data must be inspected before retrying. Native 7-Zip diagnostics, if any, appear above.') -ErrorId ('Embelish' + $kind) -Category OperationStopped
     exit $code
 }

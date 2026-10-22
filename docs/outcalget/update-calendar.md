@@ -25,7 +25,7 @@ powershell.exe -NoLogo -NoProfile -NonInteractive -STA -File "C:\Tools\update-ca
 | `-ExporterPath` | Defaults to adjacent `outcalget.ps1`; relative paths resolve from the caller's filesystem location. |
 | `-Config` | Explicit exporter configuration, resolved from the caller's filesystem location and passed as an absolute path. Mutually exclusive with Profile. |
 | `-Profile` / `-ExportProfile` | Saved export configuration name, not an Outlook MAPI profile. Omit both selectors for the existing default configuration. |
-| `-Scheduled` | Marks the wrapper record and forwards Scheduled to the exporter; does not register a task. |
+| `-Scheduled` | Marks the wrapper record and forwards Scheduled to the exporter; 0.3.6 additionally attempts one-time minimization of its own new Outlook session. Does not register a task. |
 | `-LogDirectory` | Wrapper records only. Default: `%LOCALAPPDATA%\osp\consulthelp\update-calendar\logs`. Relative paths follow the caller. Does not relocate exporter records/configuration or the update lock/recovery marker. |
 | `-GitTimeoutSeconds` | Per Git process wait, default 120, range 15–1800 seconds, plus up to two seconds for redirected stream completion. Does not change export/Outlook budgets. |
 | `-Debug` | Non-prompting wrapper diagnostics and exporter Debug; same business operation. |
@@ -59,4 +59,4 @@ A missing, incomplete, unreadable or stale record means UNKNOWN. Cancellation/ha
 
 ## Verification
 
-The [21 October 2026 verification](verification.md#scheduled-update-audit-21-october-2026) records local synthetic regression and scheduling checks separately from actual Windows/Outlook acceptance. No real calendar, external remote or registered task was used. Exporter version 0.3.5 and its implementation are unchanged.
+The [21 October 2026 verification](verification.md#scheduled-update-audit-21-october-2026) records local synthetic regression and scheduling checks separately from actual Windows/Outlook acceptance. No real calendar, external remote or registered task was used. That audit kept exporter 0.3.5 unchanged. Exporter 0.3.6 adds native date read-back verification and scheduled owned-session minimization; see [exporter date semantics](usage.md#date-window-and-recurring-events) and [startup visibility](operations.md#startup-visibility).

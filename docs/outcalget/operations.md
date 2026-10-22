@@ -30,6 +30,16 @@ Increase that limit if you raise budgets or add many contending calendars; no du
 is guaranteed for arbitrary contention. Network condition is optional: the script
 always checks Windows Internet status. An employer may restrict task creation.
 
+## Startup visibility
+
+The process launcher already requests a minimized Outlook window. In 0.3.6, `-Scheduled` additionally makes one attempt to minimize the first normal Explorer through Outlook's native `Explorer.WindowState = olMinimized` API, as soon as the initial readiness worker has attached to the newly started application. `update-calendar.ps1 -Scheduled` forwards that request automatically; no new switch or task action is needed. Replace the exporter beside the wrapper while no helper is running, using your existing approved deployment/signing process.
+
+The extra attempt runs only for the scheduled parent that actually started this verified PID/start-time lease. Existing user sessions, joined sessions, interactive Configure and later sync/export workers receive no window-state changes. It skips sessions with Inspectors, extra Explorers or an inline response, creates no Explorer when none exists, releases its own COM references and never repeatedly minimizes a window the user restores. The native call stays inside the existing bounded worker. Ownership loss still fails closed.
+
+This is best effort: Outlook can briefly display startup UI or later activate a window through add-ins, reminders, sign-in/profile/security dialogs or other native behavior. Those dialogs are not dismissed or suppressed. The code does not guarantee a completely invisible Outlook startup. Task action `-WindowStyle Hidden` controls the PowerShell host window, not Outlook's dialogs.
+
+The exporter JSON and normal run record contain `outlookStartupWindow`: `not_requested`, `minimized`, `not_available` (no normal Explorer at the instant checked), `user_activity` (left untouched), or `unavailable` (native minimization could not be confirmed). `unavailable` adds `OUTLOOK_MINIMIZE_UNAVAILABLE` while allowing export to continue; it does not bypass normal close/cleanup safeguards. No open-item contents, window titles or raw COM errors are logged. Test initially closed Outlook on the target laptop; Linux fixtures do not prove Windows focus behavior.
+
 ## Configuration And Concurrency
 
 State root: %LOCALAPPDATA%\osp\consulthelp\outcalget.
@@ -77,7 +87,7 @@ do not run older copies concurrently, since they do not implement these leases.
 
 Required unique bounded UTF-8 JSON records initialize before business work, checkpoint
 parent phases, and finish with completed=true on handled completion. Normal records
-include outcome, safe source/lifecycle flags and phases. Debug adds allowlisted host
+include outcome, safe source/lifecycle flags, requested local range/timezone, startup-window outcome and phases. Debug adds allowlisted host
 versions, script SHA-256, codes, HRESULTs and timings to the SAME record, without prompts.
 Synchronization diagnostics retain at most 24 changed connection observations: Offline,
 primary Exchange mode, elapsed milliseconds and attempt number. These describe the

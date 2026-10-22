@@ -48,7 +48,7 @@ Start in:
 C:\repo
 ```
 
-Use your approved interpreter and absolute script paths. Start in is the directory, without surrounding quotes. Remove `-Profile team` for the original default configuration, or replace it with `-Config "C:\PrivateState\config.json"`; do not combine selectors. Append `-ExporterPath "C:\Tools\outcalget.ps1"` only for a nonadjacent exporter. Optional `-LogDirectory "C:\PrivateState\CalendarUpdateLogs"` changes wrapper logs only; use a private writable directory outside the repository. For multiple tasks, distinct wrapper log directories make correlation easier. Add WindowStyle Hidden before File only after acceptance if you want to hide the PowerShell window; Office dialogs cannot be suppressed this way.
+Use your approved interpreter and absolute script paths. Start in is the directory, without surrounding quotes. Remove `-Profile team` for the original default configuration, or replace it with `-Config "C:\PrivateState\config.json"`; do not combine selectors. Append `-ExporterPath "C:\Tools\outcalget.ps1"` only for a nonadjacent exporter. Optional `-LogDirectory "C:\PrivateState\CalendarUpdateLogs"` changes wrapper logs only; use a private writable directory outside the repository. For multiple tasks, distinct wrapper log directories make correlation easier. Add WindowStyle Hidden before File only after acceptance if you want to hide the PowerShell window; Office dialogs cannot be suppressed this way. Exporter 0.3.6 also attempts one-time minimization of its own newly started normal Outlook window when Scheduled is forwarded; [startup visibility](operations.md#startup-visibility) explains the limits.
 
 Do not append shell redirects (`>`/`2>`), `-Command`, execution-policy bypass or `-Confirm:$false` to this Exec action. The script owns its run logs. No extra launcher or batch file is needed.
 
@@ -103,7 +103,7 @@ $exportLogs = Join-Path $env:LOCALAPPDATA 'osp\consulthelp\outcalget\logs'
 Get-ChildItem -LiteralPath $exportLogs -Filter ("outcalget-*-{0}.json" -f $run.exporterRunId) -File
 ```
 
-If the exporter uses a separately configured log directory, look there. Inspect its completion/publication flags, synchronization outcome, warnings and stable error codes. Exporter success alone does not confirm the commit/push. Keep configuration, mailbox identities and ICS content private; review any log before sharing it.
+If the exporter uses a separately configured log directory, look there. Inspect its completion/publication flags, synchronization outcome, warnings and stable error codes. Exporter 0.3.6 records requested rangeStartDate/rangeEndDate/timeZoneId and outlookStartupWindow in this normal record; these fields describe the requested native date range and startup outcome, not independently verified recurring-occurrence bounds. Exporter success alone does not confirm the commit/push. Keep configuration, mailbox identities and ICS content private; review any log before sharing it.
 
 ## 5. Respond to failures
 

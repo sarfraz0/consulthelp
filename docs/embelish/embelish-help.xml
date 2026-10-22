@@ -30,6 +30,7 @@ it never contains the password.</maml:para>
       <maml:para>Revision 1.1.1 resolves relative log paths from the caller’s PowerShell filesystem location. The script may be installed under scripts/ or in another directory; relative source/destination/explicit executable paths also use the caller’s location. XML help and documentation are optional for execution.</maml:para>
       <maml:para>Revision 1.2.0 implements EB-01 through EB-06: staged archive/restore publication, previous-generation backups, late-collision refusal, canonical contiguous nonempty volumes, exact file selection and diagnostic allowlisting. Native exit 1 now fails operationally. Windows filesystem/ACL/console and managed-endpoint acceptance remain NOT RUN. See docs/embelish/verification.md and operations.md.</maml:para>
       <maml:para>Version 1.2.1 also rejects incomplete base64 and data after padding, cleans up newly created staging when initialization fails, makes Windows staging protection mandatory after the main confirmation, and refuses root destinations before separator normalization. Controlled use is an ordinary interactive user session with installed dependencies, local data and no concurrent repository/output writers. No elevation, installation, download or new network mechanism is added. Embelish retains its native password prompt. A malformed shard fails before extraction.</maml:para>
+      <maml:para>Version 1.2.2 corrects the Windows access-control writer identified by supplied post-compression exit-3 logs. Windows PowerShell 5.1 uses the built-in .NET Directory/File SetAccessControl APIs; Windows PowerShell Core uses the equivalent typed FileSystemAclExtensions setter. Existing DACL snapshots and mandatory private staging are preserved without writing owner/group/audit information, elevation or a permission fallback. Windows native acceptance remains pending. Failure records/console errors add a fixed-format managed HRESULT; raw messages, stacks, paths, source names and passwords remain excluded from logs. The password prompt, CLI, split/base64 output, Force and recovery behavior are unchanged. See docs/embelish/operations.md and verification.md.</maml:para>
     </maml:description>
     <command:syntax>
       <command:syntaxItem>
@@ -298,7 +299,7 @@ restores the folder into C:\restore\project.</maml:para>
     </command:details>
     <maml:description>
       <maml:para>Logging failures never abort the business operation; they degrade to a
-single warning. Only typed allowlisted operational fields are persisted; arbitrary Data keys, paths and raw exception messages are omitted.</maml:para>
+single warning. Only typed allowlisted operational fields and fixed-format HRESULT values are persisted; arbitrary Data keys, paths, raw exception messages and stack traces are omitted.</maml:para>
     </maml:description>
     <command:syntax>
       <command:syntaxItem>

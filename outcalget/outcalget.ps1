@@ -371,6 +371,19 @@ function Get-DateWindow {
     }
 }
 
+function Set-CalendarExportWindow {
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '', Justification = 'Internal native exporter settings under the parent export ShouldProcess and bounded COM worker.')]
+    [CmdletBinding()]
+    param($Exporter, [datetime]$Start)
+    $Exporter.IncludeWholeCalendar = $false
+    $Exporter.StartDate = $Start.Date
+    $Exporter.EndDate = $Start.Date.AddDays(29)
+    if ($Exporter.IncludeWholeCalendar -or ([datetime]$Exporter.StartDate).Date -ne $Start.Date -or
+        ([datetime]$Exporter.EndDate).Date -ne $Start.Date.AddDays(29)) {
+        Stop-Outcalget -Code 'EXPORT_RANGE_MISMATCH' -Message 'Outlook did not retain the requested 30-date export window. The previous calendar was not replaced.' -ExitCode 4
+    }
+}
+
 function ConvertTo-NativeArgument {
     param([string]$Value)
     $builder = [Text.StringBuilder]::new()
@@ -1036,6 +1049,42 @@ function Start-OutlookSession {
     }
     finally {
         if ($null -eq $script:OwnedOutlookProcess) { $process.Dispose() }
+    }
+}
+
+function Set-OutlookStartupWindow {
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '', Justification = 'One-time startup minimization under parent approval, only for a verified process started by this scheduled export.')]
+    [CmdletBinding()]
+    [OutputType([string])]
+    param($Application, $Lease, [bool]$Requested)
+    if (-not $Requested) { return 'not_requested' }
+    Test-OutlookLease -Lease $Lease
+    $inspectors = $null
+    $explorers = $null
+    $explorer = $null
+    $inline = $null
+    try {
+        $inspectors = $Application.Inspectors
+        $explorers = $Application.Explorers
+        if ($inspectors.Count -gt 0 -or $explorers.Count -gt 1) { return 'user_activity' }
+        if ($explorers.Count -eq 0) { return 'not_available' }
+        $explorer = $explorers.Item(1)
+        $inline = $explorer.ActiveInlineResponse
+        if ($null -ne $inline) { return 'user_activity' }
+        Test-OutlookLease -Lease $Lease
+        $olMinimized = 1
+        $explorer.WindowState = $olMinimized
+        if ([int]$explorer.WindowState -eq $olMinimized) { return 'minimized' }
+        return 'unavailable'
+    }
+    catch {
+        if ($_.Exception.Data.Contains('OutcalgetCode')) { throw }
+        return 'unavailable'
+    }
+    finally {
+        foreach ($reference in @($inline, $explorer, $explorers, $inspectors)) {
+            Close-ComReference -Reference $reference
+        }
     }
 }
 
@@ -1903,6 +1952,12 @@ function Initialize-OutlookSession {
     $lifecycle = Enter-OutlookCoordination -AllowStart $true -Settings $Settings
     try {
         $source = Invoke-WorkerProcess -Mode 'ready' -Settings $Settings -StagePath $null -TimeoutSeconds ($StartupTimeoutSeconds + 5) -Lifecycle $lifecycle
+        if ($script:RunResult.outlookStartupWindow -ceq 'unavailable') {
+            $script:RunResult.warnings += @{
+                code = 'OUTLOOK_MINIMIZE_UNAVAILABLE'
+                message = 'Minimized Outlook startup could not be confirmed. Export continued; Office dialogs and later window activation remain possible.'
+            }
+        }
         if ([string]::IsNullOrWhiteSpace([string]$source.storeId) -or [string]::IsNullOrWhiteSpace([string]$source.folderEntryId)) {
             Stop-Outcalget -Code 'WORKER_PROTOCOL' -Message 'The readiness worker did not return an identifiable calendar.' -ExitCode 9
         }
@@ -2103,6 +2158,17 @@ function Invoke-OutlookWorker {
                 Stop-Outcalget -Code 'RECOVERY_REQUIRED' -Message 'Earlier Outlook work has an uncertain outcome. Follow recovery instructions before another native operation.' -ExitCode 5
             }
         }
+        $minimizeStartup = $false
+        $minimizeProperty = $request.PSObject.Properties['minimizeStartedOutlook']
+        if ($null -ne $minimizeProperty) {
+            if ($minimizeProperty.Value -isnot [bool]) {
+                Stop-Outcalget -Code 'WORKER_PROTOCOL' -Message 'The internal startup-window request is invalid.' -ExitCode 9
+            }
+            $minimizeStartup = $minimizeProperty.Value
+        }
+        if ($minimizeStartup -and ($request.mode -cne 'ready' -or $null -eq $request.lifecycle -or $null -eq $request.lifecycle.lease)) {
+            Stop-Outcalget -Code 'WORKER_PROTOCOL' -Message 'Minimized startup requires this run''s owned readiness request.' -ExitCode 9
+        }
         Add-Trace -Phase 'outlook-attach'
         $setupTimer = [Diagnostics.Stopwatch]::StartNew()
         if ($request.mode -in @('setup-ready', 'ready', 'sync', 'restore', 'close')) {
@@ -2127,6 +2193,9 @@ function Invoke-OutlookWorker {
         }
         else {
             $session = Invoke-ComRead -Action { $application.GetNamespace('MAPI') }
+            if ($request.mode -ceq 'ready') {
+                $reply.diagnostics.outlookStartupWindow = Set-OutlookStartupWindow -Application $application -Lease $request.lifecycle.lease -Requested $minimizeStartup
+            }
             Add-Trace -Phase 'source-validate'
         }
         if ($request.mode -eq 'setup-ready') {
@@ -2256,9 +2325,7 @@ function Invoke-OutlookWorker {
                 Test-CalendarExporterSource -Exporter $exporter -Folder $folder -Settings $settings -Session $session
                 Add-Trace -Phase 'exporter-settings'
                 $exporter.CalendarDetail = 2
-                $exporter.IncludeWholeCalendar = $false
-                $exporter.StartDate = $start
-                $exporter.EndDate = $start.AddDays(29)
+                Set-CalendarExportWindow -Exporter $exporter -Start $start
                 $exporter.IncludePrivateDetails = [bool]$settings['includePrivateDetails']
                 $exporter.IncludeAttachments = [bool]$settings['includeAttachments']
                 $exporter.RestrictToWorkingHours = $false
@@ -2330,6 +2397,7 @@ function Invoke-WorkerProcess {
         startDate     = $script:Window.start.ToString('yyyy-MM-dd', [Globalization.CultureInfo]::InvariantCulture)
         endDate       = $script:Window.end.ToString('yyyy-MM-dd', [Globalization.CultureInfo]::InvariantCulture)
         lifecycle     = $Lifecycle
+        minimizeStartedOutlook = $Mode -ceq 'ready' -and $script:ScheduledRun -and $script:RunResult.outlookStarted
         queueTimeoutSeconds = $CoordinationTimeoutSeconds
     }
     Write-AtomicJson -Path (Join-Path -Path $directory -ChildPath 'request.json') -Value $request
@@ -2417,6 +2485,14 @@ function Invoke-WorkerProcess {
         }
         if ($reply.diagnostics.PSObject.Properties.Name -contains 'primaryExchangeConnectionMode') {
             $safe.primaryExchangeConnectionMode = $reply.diagnostics.primaryExchangeConnectionMode
+        }
+        if ($reply.diagnostics.PSObject.Properties.Name -contains 'outlookStartupWindow') {
+            $windowState = $reply.diagnostics.outlookStartupWindow
+            if ($windowState -isnot [string] -or $windowState -cnotin @('not_requested', 'minimized', 'not_available', 'user_activity', 'unavailable')) {
+                Stop-Outcalget -Code 'WORKER_PROTOCOL' -Message 'The worker returned an invalid startup-window diagnostic.' -ExitCode 9
+            }
+            $safe.outlookStartupWindow = $windowState
+            $script:RunResult.outlookStartupWindow = $windowState
         }
         if ($reply.diagnostics.PSObject.Properties.Name -contains 'connectionObservations') {
             $safe.connectionObservations = @(ConvertTo-SafeConnectionObservation -Observations $reply.diagnostics.connectionObservations)
@@ -2559,7 +2635,7 @@ function New-DiagnosticReport {
     $report = @{
         diagnosticSchemaVersion    = 1
         tool                       = 'outcalget'
-        version                    = '0.3.5'
+        version                    = '0.3.6'
         runId                      = $script:RunId
         timestampUtc               = [datetime]::UtcNow.ToString('o', [Globalization.CultureInfo]::InvariantCulture)
         environment                = $script:EnvironmentDiagnostics
@@ -2614,7 +2690,7 @@ function New-RunRecord {
     $record = [ordered]@{
         logSchemaVersion           = 1
         tool                       = 'outcalget'
-        version                    = '0.3.5'
+        version                    = '0.3.6'
         runId                      = $script:RunId
         startedUtc                 = $script:StartedUtc
         updatedUtc                 = [datetime]::UtcNow.ToString('o', [Globalization.CultureInfo]::InvariantCulture)
@@ -2624,6 +2700,10 @@ function New-RunRecord {
         status                     = 'running'
         exitCode                   = $null
         published                  = $result.published
+        rangeStartDate             = $result.rangeStartDate
+        rangeEndDate               = $result.rangeEndDate
+        timeZoneId                 = $result.timeZoneId
+        outlookStartupWindow       = $result.outlookStartupWindow
         elapsedMilliseconds        = $script:Clock.ElapsedMilliseconds
         lastParentPhase            = $script:Phase
         lastWorkerPhase            = $script:LastWorkerPhase
@@ -2882,7 +2962,7 @@ if ($Help) {
     exit 0
 }
 if ($Version) {
-    '0.3.5'
+    '0.3.6'
     exit 0
 }
 if ($ExecutionContext.SessionState.LanguageMode -ne 'FullLanguage') {
@@ -2960,7 +3040,7 @@ elseif ($Check) {
 }
 $result = [ordered]@{
     resultSchemaVersion     = 1
-    version                 = '0.3.5'
+    version                 = '0.3.6'
     operation               = $operation
     runId                   = $script:RunId
     status                  = 'failed'
@@ -2975,6 +3055,7 @@ $result = [ordered]@{
     internetAvailable       = $null
     outlookInitiallyRunning = $null
     outlookStarted          = $false
+    outlookStartupWindow    = 'not_requested'
     outlookClosed           = $false
     joinedOwnedSession      = $false
     namedProfile            = $false
@@ -3199,7 +3280,7 @@ try {
             }
             $lifecycle = Initialize-OutlookSession -Settings $settings
             $exportData = Invoke-WorkerProcess -Mode 'export' -Settings $settings -StagePath $stage -TimeoutSeconds ([int]$settings['timeoutSeconds']) -Lifecycle $lifecycle
-            $result.warnings = @($exportData.warnings)
+            $result.warnings += @($exportData.warnings)
             Add-Trace -Phase 'file-validate'
             [void](Resolve-LocalPath -Path $stage)
             Test-PrivateEntry -Path $stage

@@ -110,3 +110,30 @@ Current checks: **8 focused cases PASS**, **10 existing focused cases PASS**, **
 A real ordinary-user Windows PowerShell 5.1 session with the installed 7-Zip/ACL/file-identity paths is still **NOT RUN** here. Static compatibility and Linux native tests do not establish that acceptance. No broader unattended or filesystem backup certification is claimed.
 
 Reviewed implementation SHA-256: `f9dcd2f8f0af6786ad6e6a7b47c1ea9b150fa2a742f6418d1143673230f866a9`.
+
+## Windows permission failure follow-up, 22 October 2026 — version 1.2.2
+
+Three supplied 1.2.1 logs record native 7-Zip exit 0 followed by script exit 3 at line 631, the Set-Acl call in Set-OutputAccess. A fourth records a missing-source input failure before native work. This establishes the failing publication step, not its underlying Windows privilege/ACL cause: the old logs contain no original exception or HRESULT. No supplied log demonstrates a successful Windows run of the external candidate.
+
+The reviewed correction adopts access-only .NET persistence from the candidate, preserves existing ACL construction/protection and redacted diagnostics, and adds a fixed-format HRESULT. Current checks used Debian Linux, PowerShell 7.6.6/.NET 10.0.12, 7-Zip 25.01 and PSScriptAnalyzer 1.24.0; fixtures and credentials were synthetic, with no elevation, dependency installation or network publication.
+
+| Current-revision check | Result |
+|---|---|
+| Windows writer dispatch, failure preservation, API signatures and diagnostic allowlist | 8 PASS |
+| Existing focused safety/refusal scenarios | 10 PASS |
+| Existing publication, recovery, streaming, preview and permission scenarios | 16 PASS |
+| Remaining controlled-shell base64, cleanup and root-refusal scenarios | 7 PASS |
+| Native interactive encrypted standalone/base64/restore scenarios | 8 PASS |
+| Parser, default analyzer and explicit Windows PowerShell 5.1 syntax/command/type profile | 0 findings |
+| Native help XML, script help/relocated no-XML help and 15 existing helper help entries | PASS |
+| Encoding and embedded native path-identity source | Original UTF-8/no-BOM/LF and native source preserved |
+
+The eight new scenarios extract the actual writer/operation code but substitute Windows API or publication boundaries where necessary. They verify Desktop/Core file/directory dispatch without extra confirmation, propagated denial/missing-setter failures, source access-only construction, fixed-format HRESULT filtering, and preservation of an existing shard after native exit 0 followed by permission failure. A successful synthetic retry publishes the encoded output and retains the old generation. These are regression assertions, not native Windows ACL acceptance. The prior Set-Acl-specific confirmation stand-in is replaced by these managed-writer checks; the seven remaining controlled-shell scenarios are unchanged.
+
+Exact Framework setters were checked against the installed 5.1 compatibility profile; Core overloads were checked against installed runtime metadata. The Core test exposed a PSObject/reflection argument mismatch, corrected by explicitly unwrapping provider/security objects. No vendor documentation was fetched over the network.
+
+The eight real native scenarios use a relocated script without XML and terminal-entered synthetic passwords. They cover four leading-dot encrypted volumes, explicit selection among multiple sets, restored hashes/Unicode/empty directories, corruption and wrong-password preservation, late collision refusal, retained Force backup, private-marker redaction and ambiguous-set refusal. Production password handling remains unchanged.
+
+**NOT RUN:** real Windows PowerShell 5.1 or PowerShell 7 on Windows; native DACL write/readback and owner/group preservation; the user's filesystem/ACL/endpoint policy; Windows file-identity/UNC/console acceptance. A standard-user Windows rerun is still needed to establish that this correction resolves the reported incident. Permission denial remains fatal; no permission fallback or policy workaround is introduced.
+
+Reviewed implementation SHA-256: `97b0262bb6bbb8d8e3c5649e82457641de879ce99625e88f9b76406fbe2a16b5`.

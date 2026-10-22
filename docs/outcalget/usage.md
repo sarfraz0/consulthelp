@@ -31,8 +31,8 @@ or freshness/consumer test. Operational logs, locks and private worker files can
 
 ### -Scheduled
 
-Non-prompting saved export plus scheduled metadata. Does not create a task or alter
-business behavior. Incompatible with Configure, Check, Help and Version parameter sets.
+Non-prompting saved export plus scheduled metadata. A newly started, script-owned
+Outlook session receives one best-effort startup minimization attempt. Does not create a task. Incompatible with Configure, Check, Help and Version parameter sets.
 
 ### -CoordinationTimeoutSeconds
 
@@ -73,7 +73,7 @@ Compatibility alias for full Get-Help; also supports Get-Help and -?.
 
 ### -Version
 
-Prints 0.3.5 without Outlook access or run records.
+Prints 0.3.6 without Outlook access or run records.
 
 ## Examples
 
@@ -119,6 +119,16 @@ powershell.exe -NoLogo -NoProfile -NonInteractive -STA -File "C:\ApprovedTools\o
 
 Preview: no source access, export, startup, output claim or configuration changes.
 Minimal run logging may occur; retention is skipped. Configuration/source is not validated.
+
+## Date window and recurring events
+
+The run captures the current **local calendar date** once at startup, then requests that date through date + 29, inclusive. For a run started on **22 October 2026**, the requested dates are **22 October–20 November 2026**. They do not depend on the month a recurring series began. The worker receives culture-independent date strings, disables IncludeWholeCalendar, sets StartDate/EndDate, and now reads those properties back before SaveAsICal. A mismatch fails with `EXPORT_RANGE_MISMATCH` (exit 4) before saving or replacing output.
+
+An iCalendar recurring series uses its original `DTSTART` with an `RRULE` (and possibly exception components). A series that began on 9 September can have valid occurrences inside the requested October/November window. Outlook may retain that original series start when exporting a selected series; opening/importing it can show earlier occurrences. A past `DTSTART` alone is therefore insufficient to diagnose an incorrect export range. A `RECURRENCE-ID` identifies a particular exception rather than the series master. All-day and multi-day items can also have original starts outside a selected window when they overlap it.
+
+The native export is preserved: the script does not flatten recurrences, move their DTSTART, rewrite COUNT/UNTIL, or clip event durations. The requested window selects native export content; it is **not a guarantee that importing every retained recurrence rule yields only occurrences within those dates**. Strict occurrence-only snapshots would require a separately designed/tested export mode. This change does not introduce one or claim to diagnose a specific ICS that was not inspected.
+
+The result envelope and normal exporter run record include `rangeStartDate`, `rangeEndDate` and `timeZoneId`. Compare the record for that export with the affected VEVENT's DTSTART/RRULE/RECURRENCE-ID. Do not confuse dates inside VTIMEZONE definitions with appointment starts. Keep subject, description, location, attendees and IDs private when sharing only date/recurrence evidence.
 
 ## Inputs
 

@@ -3,11 +3,13 @@
 Protects (embelishes) or restores (deembelishes) a folder as encrypted,
 base64-encoded text shards backed by a split 7-Zip archive.
 
-Implementation: [`embelish.ps1`](../../embelish/embelish.ps1), version 1.2.1.
+Implementation: [`embelish.ps1`](../../embelish/embelish.ps1), version 1.2.2.
 
 **Production readiness: target acceptance pending.** Version 1.2.0 implements EB-01–EB-06 from the [20 October audit](audit-2026-10-20.md). Current synthetic verification and recovery instructions are recorded below; Windows PowerShell 5.1, Windows filesystem/ACL behavior and managed-endpoint acceptance remain unverified.
 
 Version 1.2.1 also rejects incomplete base64 and data after padding, cleans up newly created staging when initialization fails, makes Windows staging protection mandatory after the main confirmation, and refuses root destinations before separator normalization.
+
+Version 1.2.2 changes the Windows permission writer to built-in .NET access-control APIs that persist the modified access rules without assigning owner/group or audit sections. It addresses the permission-application point identified by supplied exit-3 logs after successful 7-Zip compression. Failure diagnostics now add a fixed-format HRESULT while retaining redaction. Native Windows acceptance remains pending; see [the incident review](verification.md#windows-permission-failure-follow-up-22-october-2026--version-122).
 
 ## Documentation
 
@@ -40,7 +42,7 @@ scheduling unless a separate provisioned credential mechanism is added.
 
 Diagnostic events are written as JSON Lines to a per-run file under
 %LOCALAPPDATA%\Embelish\logs (or -LogDirectory). The diagnostic file records
-allowlisted stage/count/exit/error-category fields. Paths, source names, raw
+allowlisted stage/count/exit/error-category/HRESULT fields. Paths, source names, raw
 exceptions, payloads and passwords are omitted. Native 7-Zip console output
 can contain filenames; it is not a sanitized log.
 
@@ -54,4 +56,4 @@ Deploy `embelish.ps1` alone with its declared PowerShell/7-Zip dependencies and 
 
 [Sendshards](../sendshards/README.md) can plan transfer of the produced shards. This Embelish revision emits no checksum manifest; Sendshards treats those sets as legacy and warns.
 
-Version 1.2.1 requires FullLanguage and installed 7-Zip. On Windows it uses built-in native file-identity APIs for alias-safe overlap checks and standard ACL cmdlets. Filesystems must support these checks and same-parent directory renames. Unix development execution requires PowerShell 7.2/.NET 6 or newer for private staging modes. No extra modules, XML, documentation or companion implementation files are required.
+Version 1.2.2 requires FullLanguage and installed 7-Zip. On Windows it uses built-in native file-identity APIs for alias-safe overlap checks, Get-Acl for access snapshots and native .NET access-control setters. Filesystems must support these checks and same-parent directory renames. Unix development execution requires PowerShell 7.2/.NET 6 or newer for private staging modes. No extra modules, XML, documentation or companion implementation files are required.

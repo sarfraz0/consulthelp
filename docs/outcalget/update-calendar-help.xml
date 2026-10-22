@@ -15,7 +15,7 @@
       <maml:para>Push explicitly targets the approved upstream branch, excluding tags and submodules; conflicting push remote/refspec overrides are refused. Rechecks branch/destination and confirms the remote tip. Hooks, signing, remote-specific credentials/proxy settings, TLS and server controls remain active. Mirror/ambiguous remotes and alternate Git directory/index/object/namespace environments are refused.</maml:para>
       <maml:para>Git stdin is closed with child-only GIT_TERMINAL_PROMPT=0 and GCM_INTERACTIVE=Never. Git waits are bounded by GitTimeoutSeconds; raw native output is drained without display/log retention. Native helper dialogs still require prior provisioning. A timed-out command may leave child work active; a retained git-recovery.pending marker blocks later updates before export until reviewed.</maml:para>
       <maml:para>Normal and Debug runs checkpoint wrapper records under LOCALAPPDATA/osp/consulthelp/update-calendar/logs by default. Records correlate the exporter run ID with Git/commit/remote outcome without calendar content, identities, paths, URLs or raw native output. Debug adds non-prompting wrapper diagnostics and is forwarded to outcalget. Retention attempts 200 older records plus the current run and 14 days; active/inaccessible records are preserved. Use an approved user-private directory.</maml:para>
-      <maml:para>Scheduled forwards scheduled metadata without creating a task. Configure Task Scheduler with Run only when user is logged on, highest privileges off, no overlapping instance or automatic failure retry, absolute paths and an explicit Start in directory. Use powershell.exe -NoLogo -NoProfile -NonInteractive -STA -File with this script. NonInteractive cannot suppress Office dialogs. Do not use redirects or policy-bypass options.</maml:para>
+      <maml:para>Scheduled forwards scheduled metadata without creating a task; exporter 0.3.6 also attempts one-time minimization of its own newly started normal Outlook window. Configure Task Scheduler with Run only when user is logged on, highest privileges off, no overlapping instance or automatic failure retry, absolute paths and an explicit Start in directory. Use powershell.exe -NoLogo -NoProfile -NonInteractive -STA -File with this script. NonInteractive cannot suppress Office dialogs. Do not use redirects or policy-bypass options.</maml:para>
       <maml:para>Exit 0 means success/preview; handled failures exit 1. WhatIf/declined confirmation skip all mutations, including logs. Success requires a current completed/success/exitCode=0 record with exportPublished and remoteConfirmed true, recoveryRequired false, and Scheduler 0x0. An exporter success or old ICS alone is insufficient. Missing/incomplete completion means UNKNOWN; pre-start policy/binding failures may have no record. See docs/outcalget/scheduling.md for setup, monitoring and marker recovery.</maml:para>
     </maml:description>
     <command:syntax>
@@ -101,7 +101,7 @@
       <command:parameter required="false" position="named" pipelineInput="false" globbing="false">
         <maml:name>Scheduled</maml:name>
         <maml:description>
-          <maml:para>Marks wrapper/exporter run metadata; never registers a task.</maml:para>
+          <maml:para>Marks wrapper/exporter run metadata; exporter 0.3.6 also attempts one-time minimization of its own newly started Outlook session. Never registers a task.</maml:para>
         </maml:description>
         <command:parameterValue required="false">SwitchParameter</command:parameterValue>
         <dev:type>
